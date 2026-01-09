@@ -1,0 +1,114 @@
+metadata:
+  id: "ampel-test-policy-001"
+  description: "Test policy for Ampel transformation with automated assessment plans"
+  version: "1.0.0"
+  author:
+    id: security-team
+    name: "Security Team"
+    type: Human
+    contact:
+      name: "Security Team Lead"
+      affiliation: "Security Department"
+      email: "security@example.com"
+
+title: "Supply Chain Security Policy"
+purpose: "Establish supply chain security controls for software artifacts"
+
+contacts:
+  responsible:
+    - name: "DevOps Manager"
+      primary: true
+      affiliation: "Engineering"
+      email: "devops@example.com"
+  accountable:
+    - name: "Chief Security Officer"
+      primary: true
+      affiliation: "Executive Team"
+      email: "cso@example.com"
+
+scope:
+  in:
+    technologies:
+      - "Container Images"
+      - "Cloud Native Applications"
+    geopolitical:
+      - "United States"
+      - "European Union"
+    sensitivity:
+      - "Confidential"
+      - "Public"
+
+imports:
+  catalogs:
+    - reference-id: "SLSA-CONTROLS"
+
+adherence:
+  assessment-plans:
+    - id: "slsa-prov-check"
+      requirement-id: "SC-01.01"
+      frequency: "every build"
+      evaluation-methods:
+        - type: "automated"
+          description: "Verify SLSA provenance attestation is present"
+          executor:
+            type: "Software"
+            name: "ampel"
+      evidence-requirements: "SLSA provenance attestation with builder identity"
+      parameters:
+        - id: "builder-id"
+          label: "Trusted Builder ID"
+          description: "The ID of the trusted builder"
+          accepted-values:
+            - "https://github.com/actions/runner"
+            - "https://gitlab.com/gitlab-runner"
+
+    - id: "sbom-check"
+      requirement-id: "SC-02.01"
+      frequency: "every build"
+      evaluation-methods:
+        - type: "automated"
+          description: "Verify SBOM is present"
+          executor:
+            type: "Software"
+            name: "ampel"
+      evidence-requirements: "SBOM in SPDX or CycloneDX format"
+
+    - id: "vuln-scan-check"
+      requirement-id: "SC-03.01"
+      frequency: "daily"
+      evaluation-methods:
+        - type: "automated"
+          description: "Verify vulnerability scan results"
+          executor:
+            type: "Software"
+            name: "ampel"
+      evidence-requirements: "Vulnerability scan with no critical findings"
+      parameters:
+        - id: "scanner"
+          label: "Vulnerability Scanner"
+          description: "The vulnerability scanner tool"
+          accepted-values:
+            - "trivy"
+            - "grype"
+
+    - id: "build-materials-check"
+      requirement-id: "SC-01.02"
+      frequency: "every build"
+      evaluation-methods:
+        - type: "automated"
+          description: "Verify build materials are tracked"
+        - type: "manual"
+          description: "Review build materials quarterly"
+      evidence-requirements: "SLSA provenance with complete materials list"
+
+  evaluation-methods:
+    - type: "automated"
+      description: "Automated policy enforcement via Ampel"
+    - type: "gate"
+      description: "Pre-deployment gate checks"
+
+  enforcement-methods:
+    - type: "gate"
+      description: "Block deployment if policy violations exist"
+
+  non-compliance: "Notify security team and block deployment"

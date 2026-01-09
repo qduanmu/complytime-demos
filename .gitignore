@@ -11,3 +11,4 @@
 # Ignore local changes to this file
 base_ansible_env/ansible_inventory
 base_ansible_env/downloads_scan*
+go.work.sum
