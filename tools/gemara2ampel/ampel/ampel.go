@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"unicode"
 
 	"github.com/ossf/gemara"
 )
@@ -164,9 +165,19 @@ func assessmentPlanToTenets(
 
 		for _, param := range plan.Parameters {
 			if len(param.AcceptedValues) > 0 {
-				// Use first accepted value as default
-				tenetParams[param.Id] = param.AcceptedValues[0]
-				celParams[param.Id] = param.AcceptedValues[0]
+				// Store parameter value(s) in tenetParams
+				if len(param.AcceptedValues) == 1 {
+					// Single value: store as string
+					tenetParams[param.Id] = param.AcceptedValues[0]
+				} else {
+					// Multiple values: store as array
+					tenetParams[param.Id] = param.AcceptedValues
+				}
+
+				// Convert parameter ID to PascalCase for CEL templates
+				// Example: "builder-id" -> "BuilderId"
+				pascalCaseId := kebabToPascal(param.Id)
+				celParams[pascalCaseId] = param.AcceptedValues[0]
 
 				// For multiple accepted values, format as list for CEL
 				if len(param.AcceptedValues) > 1 {
@@ -174,7 +185,7 @@ func assessmentPlanToTenets(
 					for _, val := range param.AcceptedValues {
 						quotedValues = append(quotedValues, fmt.Sprintf(`"%s"`, val))
 					}
-					celParams[param.Id+"s"] = strings.Join(quotedValues, ", ")
+					celParams[pascalCaseId+"s"] = strings.Join(quotedValues, ", ")
 				}
 			}
 		}
@@ -445,4 +456,20 @@ func extractPolicyIdFromReference(reference string) string {
 
 	// Fallback: use the whole reference as ID
 	return reference
+}
+
+// kebabToPascal converts kebab-case to PascalCase for template parameters.
+// Examples: "builder-id" -> "BuilderId", "scanner" -> "Scanner"
+func kebabToPascal(s string) string {
+	parts := strings.Split(s, "-")
+	var result strings.Builder
+	for _, part := range parts {
+		if len(part) > 0 {
+			// Capitalize first letter of each part
+			runes := []rune(part)
+			runes[0] = unicode.ToUpper(runes[0])
+			result.WriteString(string(runes))
+		}
+	}
+	return result.String()
 }

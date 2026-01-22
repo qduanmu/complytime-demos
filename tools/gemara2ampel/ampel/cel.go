@@ -96,7 +96,7 @@ func GenerateCELFromMethod(
 	templateStr, ok := templates[templateName]
 	if !ok {
 		// Generate a basic CEL expression as fallback
-		return generateBasicCEL(attestationType, evidenceReq, params)
+		return generateBasicCEL(attestationType, evidenceReq)
 	}
 
 	// Generate CEL from template
@@ -154,7 +154,7 @@ func selectTemplateFromEvidence(evidenceReq string) string {
 }
 
 // generateBasicCEL creates a basic CEL expression when no template matches.
-func generateBasicCEL(attestationType, evidenceReq string, params map[string]interface{}) (string, []string, error) {
+func generateBasicCEL(attestationType, evidenceReq string) (string, []string, error) {
 	attestationTypes := []string{}
 	if attestationType != "" {
 		attestationTypes = append(attestationTypes, attestationType)

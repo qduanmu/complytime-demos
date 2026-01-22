@@ -26,33 +26,49 @@ go build -o bin/ampel_export ./cmd/ampel_export
 
 ### Usage
 ```bash
-# Output to stdout
+# Generate policy (output: policy-name.json based on input filename)
 bin/ampel_export <policy.yaml>
 
-# Output to file
-bin/ampel_export <policy.yaml> -output <output.json>
+# Output to specific file
+bin/ampel_export <policy.yaml> -o <output.json>
 
 # With catalog enrichment
-bin/ampel_export <policy.yaml> -catalog <catalog.yaml> -output <output.json>
+bin/ampel_export <policy.yaml> -c <catalog.yaml> -o <output.json>
 
 # With scope filters
-bin/ampel_export <policy.yaml> -scope-filters -output <output.json>
+bin/ampel_export <policy.yaml> --scope-filters -o <output.json>
 
 # Generate PolicySet with imports
-bin/ampel_export <policy.yaml> -policyset -output <output.json>
+bin/ampel_export <policy.yaml> --policyset -o <output.json>
+
+# Workspace mode (preserves manual CEL edits on regeneration)
+bin/ampel_export <policy.yaml> -w ./policies
+
+# Force regeneration (discard manual changes)
+bin/ampel_export <policy.yaml> -w ./policies --force-overwrite
+
+# Get help
+bin/ampel_export --help
+
+# Show version
+bin/ampel_export --version
 ```
 
 ### Command-Line Flags
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `-output`, `-o` | Output file path | stdout |
-| `-catalog` | Catalog file for enriching policy details | - |
-| `-scope-filters` | Include scope-based CEL filters in tenets | false |
-| `-policyset` | Generate a PolicySet with imports as external references | false |
-| `-policyset-name` | Name for the PolicySet (only used with -policyset) | - |
-| `-policyset-description` | Description for the PolicySet | - |
-| `-policyset-version` | Version for the PolicySet | - |
+| `-o`, `--output` | Output file path | Input filename with .json extension |
+| `-w`, `--workspace` | Workspace directory for policy management | - |
+| `--force-overwrite` | Force regeneration, discard manual changes | false |
+| `-c`, `--catalog` | Catalog file for enriching policy details | - |
+| `--scope-filters` | Include scope-based CEL filters in tenets | false |
+| `--policyset` | Generate a PolicySet with imports as external references | false |
+| `--policyset-name` | Name for the PolicySet (only used with --policyset) | - |
+| `--policyset-description` | Description for the PolicySet | - |
+| `--policyset-version` | Version for the PolicySet | - |
+| `-h`, `--help` | Show help message | - |
+| `-v`, `--version` | Show version information | - |
 
 ### Examples
 
@@ -68,16 +84,20 @@ bin/ampel_export test_data/ampel-test-policy.yaml -policyset -scope-filters -out
 ```
 
 ### Features
-- Full Gemara Layer 3 schema support via `github.com/ossf/gemara`
-- Catalog enrichment to populate tenet descriptions
-- Scope-based CEL filter generation
-- PolicySet generation with import handling
-- Template-based CEL code generation
-- Automatic attestation type inference
+- **Full Gemara Layer 3 schema support** via `github.com/ossf/gemara`
+- **Workspace mode** - Preserves manual CEL edits on policy regeneration
+- **Smart parameter handling** - Single values as strings, multiple values as arrays
+- **Catalog enrichment** to populate tenet descriptions
+- **Scope-based CEL filter generation**
+- **PolicySet generation** with import handling
+- **Template-based CEL code generation** with PascalCase parameter support
+- **Automatic attestation type inference**
+- **Cobra CLI** with short flags, help, and version support
 
 ### Dependencies
 The Go version uses the following dependencies:
 - `github.com/ossf/gemara v0.18.0` - Gemara schema definitions
+- `github.com/spf13/cobra v1.10.2` - CLI framework
 - `github.com/goccy/go-yaml v1.19.1` - YAML parsing
 
 ## Field Mappings
@@ -197,6 +217,7 @@ ampel verify \
 
 For comprehensive documentation, see:
 - **[Field Mapping Documentation](docs/FIELD_MAPPING.md)** - Complete mapping reference
+- **[Workspace Mode](docs/WORKSPACE_MODE.md)** - Preserve manual CEL edits on regeneration
 
 ### CEL Resources
 
