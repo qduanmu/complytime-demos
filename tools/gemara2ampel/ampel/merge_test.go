@@ -7,36 +7,40 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func createMergeTestPolicy(id string, version int64, description string) AmpelPolicy {
+	return AmpelPolicy{
+		Id: id,
+		Meta: &Meta{
+			Version:     version,
+			Description: description,
+			AssertMode:  "AND",
+		},
+		Tenets: []*Tenet{},
+	}
+}
+
 // TestMergePolicy_PreservesCELCode verifies that CEL code from existing policy is preserved.
 func TestMergePolicy_PreservesCELCode(t *testing.T) {
-	existing := AmpelPolicy{
-		Name:        "Test Policy",
-		Version:     "1.0.0",
-		Description: "Original description",
-		Rule:        "all(tenets)",
-		Tenets: []Tenet{
-			{
-				ID:          "req-001-plan-001-0",
-				Name:        "Original Name",
-				Description: "Original description",
-				Code:        "// MANUALLY EDITED CEL CODE\nattestation.verified == true",
-				Parameters:  map[string]interface{}{"key": "original"},
+	existing := createMergeTestPolicy("test-policy", 1, "Original description")
+	existing.Tenets = []*Tenet{
+		{
+			Id:    "req-001-plan-001-0",
+			Title: "Original Name",
+			Code:  "// MANUALLY EDITED CEL CODE\nattestation.verified == true",
+			Outputs: map[string]*Output{
+				"key": {Code: "context.key", Value: "original"},
 			},
 		},
 	}
 
-	generated := AmpelPolicy{
-		Name:        "Test Policy",
-		Version:     "2.0.0",
-		Description: "Updated description",
-		Rule:        "all(tenets)",
-		Tenets: []Tenet{
-			{
-				ID:          "req-001-plan-001-0",
-				Name:        "Updated Name",
-				Description: "Updated description",
-				Code:        "attestation.verified == false", // This should NOT be used
-				Parameters:  map[string]interface{}{"key": "generated"},
+	generated := createMergeTestPolicy("test-policy", 2, "Updated description")
+	generated.Tenets = []*Tenet{
+		{
+			Id:    "req-001-plan-001-0",
+			Title: "Updated Name",
+			Code:  "attestation.verified == false", // This should NOT be used
+			Outputs: map[string]*Output{
+				"key": {Code: "context.key", Value: "generated"},
 			},
 		},
 	}
@@ -53,41 +57,31 @@ func TestMergePolicy_PreservesCELCode(t *testing.T) {
 	assert.Equal(t, 0, stats.TenetsRemoved)
 }
 
-// TestMergePolicy_PreservesParameters verifies that parameters from existing policy are preserved.
+// TestMergePolicy_PreservesParameters verifies that outputs from existing policy are preserved.
 func TestMergePolicy_PreservesParameters(t *testing.T) {
-	existing := AmpelPolicy{
-		Name:        "Test Policy",
-		Version:     "1.0.0",
-		Description: "Description",
-		Rule:        "all(tenets)",
-		Tenets: []Tenet{
-			{
-				ID:          "req-001-plan-001-0",
-				Name:        "Tenet",
-				Code:        "true",
-				Parameters: map[string]interface{}{
-					"threshold": 95,
-					"enabled":   true,
-					"custom":    "manual value",
-				},
+	existing := createMergeTestPolicy("test-policy", 1, "Description")
+	existing.Tenets = []*Tenet{
+		{
+			Id:    "req-001-plan-001-0",
+			Title: "Tenet",
+			Code:  "true",
+			Outputs: map[string]*Output{
+				"threshold": {Code: "context.threshold", Value: 95},
+				"enabled":   {Code: "context.enabled", Value: true},
+				"custom":    {Code: "context.custom", Value: "manual value"},
 			},
 		},
 	}
 
-	generated := AmpelPolicy{
-		Name:        "Test Policy",
-		Version:     "2.0.0",
-		Description: "Description",
-		Rule:        "all(tenets)",
-		Tenets: []Tenet{
-			{
-				ID:   "req-001-plan-001-0",
-				Name: "Tenet",
-				Code: "true",
-				Parameters: map[string]interface{}{
-					"threshold": 50, // Should NOT be used
-					"enabled":   false,
-				},
+	generated := createMergeTestPolicy("test-policy", 2, "Description")
+	generated.Tenets = []*Tenet{
+		{
+			Id:    "req-001-plan-001-0",
+			Title: "Tenet",
+			Code:  "true",
+			Outputs: map[string]*Output{
+				"threshold": {Code: "context.threshold", Value: 50},
+				"enabled":   {Code: "context.enabled", Value: false},
 			},
 		},
 	}
@@ -95,233 +89,201 @@ func TestMergePolicy_PreservesParameters(t *testing.T) {
 	merged, stats, err := MergePolicy(existing, generated)
 	require.NoError(t, err)
 
-	// Verify parameters were preserved
-	assert.Equal(t, 95, merged.Tenets[0].Parameters["threshold"])
-	assert.Equal(t, true, merged.Tenets[0].Parameters["enabled"])
-	assert.Equal(t, "manual value", merged.Tenets[0].Parameters["custom"])
+	// Verify outputs were preserved
+	assert.Equal(t, 95, merged.Tenets[0].Outputs["threshold"].Value)
+	assert.Equal(t, true, merged.Tenets[0].Outputs["enabled"].Value)
+	assert.Equal(t, "manual value", merged.Tenets[0].Outputs["custom"].Value)
 
 	// Verify stats
 	assert.Equal(t, 1, stats.TenetsPreserved)
 }
 
-// TestMergePolicy_UpdatesMetadata verifies that policy-level metadata is updated from generated.
+// TestMergePolicy_UpdatesMetadata verifies that metadata is updated from generated policy.
 func TestMergePolicy_UpdatesMetadata(t *testing.T) {
-	existing := AmpelPolicy{
-		Name:        "Old Policy Name",
-		Version:     "1.0.0",
-		Description: "Old description",
-		Metadata: map[string]string{
-			"author": "Old Author",
-			"id":     "policy-001",
-		},
-		Imports: []string{"old-import"},
-		Rule:    "all(tenets)",
-		Tenets: []Tenet{
-			{ID: "tenet-1", Name: "Tenet", Code: "true"},
+	existing := createMergeTestPolicy("test-policy", 1, "Old description")
+	existing.Tenets = []*Tenet{
+		{
+			Id:    "req-001-plan-001-0",
+			Title: "Tenet",
+			Code:  "original_code",
 		},
 	}
 
-	generated := AmpelPolicy{
-		Name:        "New Policy Name",
-		Version:     "2.0.0",
-		Description: "New description",
-		Metadata: map[string]string{
-			"author":  "New Author",
-			"id":      "policy-001",
-			"updated": "2026-01-22",
-		},
-		Imports: []string{"new-import-1", "new-import-2"},
-		Rule:    "any(tenets)",
-		Tenets: []Tenet{
-			{ID: "tenet-1", Name: "Tenet", Code: "false"},
+	generated := createMergeTestPolicy("test-policy", 2, "New description")
+	generated.Meta.Enforce = "ON"
+	generated.Tenets = []*Tenet{
+		{
+			Id:    "req-001-plan-001-0",
+			Title: "Updated Tenet",
+			Code:  "new_code",
 		},
 	}
 
 	merged, _, err := MergePolicy(existing, generated)
 	require.NoError(t, err)
-
-	// Verify all policy-level fields were updated
-	assert.Equal(t, "New Policy Name", merged.Name)
-	assert.Equal(t, "2.0.0", merged.Version)
-	assert.Equal(t, "New description", merged.Description)
-	assert.Equal(t, "any(tenets)", merged.Rule)
 
 	// Verify metadata was updated
-	assert.Equal(t, "New Author", merged.Metadata["author"])
-	assert.Equal(t, "policy-001", merged.Metadata["id"])
-	assert.Equal(t, "2026-01-22", merged.Metadata["updated"])
+	assert.Equal(t, int64(2), merged.Meta.Version)
+	assert.Equal(t, "New description", merged.Meta.Description)
+	assert.Equal(t, "ON", merged.Meta.Enforce)
 
-	// Verify imports were updated
-	assert.Equal(t, []string{"new-import-1", "new-import-2"}, merged.Imports)
+	// But code was preserved
+	assert.Equal(t, "original_code", merged.Tenets[0].Code)
 }
 
-// TestMergePolicy_UpdatesTenetNames verifies that tenet names/descriptions are updated.
+// TestMergePolicy_UpdatesTenetNames verifies that tenet titles are updated.
 func TestMergePolicy_UpdatesTenetNames(t *testing.T) {
-	existing := AmpelPolicy{
-		Name:    "Policy",
-		Version: "1.0.0",
-		Rule:    "all(tenets)",
-		Tenets: []Tenet{
-			{
-				ID:               "tenet-1",
-				Name:             "Old Tenet Name",
-				Description:      "Old description",
-				Code:             "manual.code == true",
-				AttestationTypes: []string{"old-type"},
-			},
+	existing := createMergeTestPolicy("test-policy", 1, "Description")
+	existing.Tenets = []*Tenet{
+		{
+			Id:    "req-001-plan-001-0",
+			Title: "Old Tenet Name",
+			Code:  "manual_cel_code",
 		},
 	}
 
-	generated := AmpelPolicy{
-		Name:    "Policy",
-		Version: "2.0.0",
-		Rule:    "all(tenets)",
-		Tenets: []Tenet{
-			{
-				ID:               "tenet-1",
-				Name:             "New Tenet Name",
-				Description:      "New description with more details",
-				Code:             "generated.code == false",
-				AttestationTypes: []string{"new-type-1", "new-type-2"},
-			},
+	generated := createMergeTestPolicy("test-policy", 2, "Description")
+	generated.Tenets = []*Tenet{
+		{
+			Id:    "req-001-plan-001-0",
+			Title: "New Tenet Name",
+			Code:  "generated_cel_code",
 		},
 	}
 
 	merged, _, err := MergePolicy(existing, generated)
 	require.NoError(t, err)
 
-	// Verify name and description were updated
-	assert.Equal(t, "New Tenet Name", merged.Tenets[0].Name)
-	assert.Equal(t, "New description with more details", merged.Tenets[0].Description)
-
-	// Verify attestation types were updated
-	assert.Equal(t, []string{"new-type-1", "new-type-2"}, merged.Tenets[0].AttestationTypes)
+	// Verify title was updated
+	assert.Equal(t, "New Tenet Name", merged.Tenets[0].Title)
 
 	// But code was preserved
-	assert.Equal(t, "manual.code == true", merged.Tenets[0].Code)
+	assert.Equal(t, "manual_cel_code", merged.Tenets[0].Code)
 }
 
-// TestMergePolicy_AddsNewTenets verifies that new tenets from generated are added.
+// TestMergePolicy_AddsNewTenets verifies that new tenets are added.
 func TestMergePolicy_AddsNewTenets(t *testing.T) {
-	existing := AmpelPolicy{
-		Name:    "Policy",
-		Version: "1.0.0",
-		Rule:    "all(tenets)",
-		Tenets: []Tenet{
-			{ID: "tenet-1", Name: "Existing Tenet", Code: "existing.code"},
+	existing := createMergeTestPolicy("test-policy", 1, "Description")
+	existing.Tenets = []*Tenet{
+		{
+			Id:    "req-001-plan-001-0",
+			Title: "Existing Tenet",
+			Code:  "existing_code",
 		},
 	}
 
-	generated := AmpelPolicy{
-		Name:    "Policy",
-		Version: "2.0.0",
-		Rule:    "all(tenets)",
-		Tenets: []Tenet{
-			{ID: "tenet-1", Name: "Existing Tenet", Code: "new.code"},
-			{ID: "tenet-2", Name: "New Tenet 2", Code: "tenet2.code"},
-			{ID: "tenet-3", Name: "New Tenet 3", Code: "tenet3.code"},
+	generated := createMergeTestPolicy("test-policy", 2, "Description")
+	generated.Tenets = []*Tenet{
+		{
+			Id:    "req-001-plan-001-0",
+			Title: "Existing Tenet",
+			Code:  "new_code",
+		},
+		{
+			Id:    "req-002-plan-002-0",
+			Title: "New Tenet",
+			Code:  "brand_new_code",
 		},
 	}
 
 	merged, stats, err := MergePolicy(existing, generated)
 	require.NoError(t, err)
 
-	// Verify all tenets are present
-	assert.Equal(t, 3, len(merged.Tenets))
+	// Verify both tenets are present
+	assert.Len(t, merged.Tenets, 2)
+
+	// First tenet preserved code
+	assert.Equal(t, "existing_code", merged.Tenets[0].Code)
+
+	// Second tenet is new
+	assert.Equal(t, "req-002-plan-002-0", merged.Tenets[1].Id)
+	assert.Equal(t, "brand_new_code", merged.Tenets[1].Code)
 
 	// Verify stats
 	assert.Equal(t, 1, stats.TenetsPreserved)
-	assert.Equal(t, 2, stats.TenetsAdded)
+	assert.Equal(t, 1, stats.TenetsAdded)
 	assert.Equal(t, 0, stats.TenetsRemoved)
-
-	// Verify existing tenet preserved its code
-	assert.Equal(t, "existing.code", merged.Tenets[0].Code)
-
-	// Verify new tenets were added with generated code
-	assert.Equal(t, "tenet-2", merged.Tenets[1].ID)
-	assert.Equal(t, "tenet2.code", merged.Tenets[1].Code)
-	assert.Equal(t, "tenet-3", merged.Tenets[2].ID)
-	assert.Equal(t, "tenet3.code", merged.Tenets[2].Code)
 }
 
 // TestMergePolicy_RemovesOrphanedTenets verifies that orphaned tenets are removed.
 func TestMergePolicy_RemovesOrphanedTenets(t *testing.T) {
-	existing := AmpelPolicy{
-		Name:    "Policy",
-		Version: "1.0.0",
-		Rule:    "all(tenets)",
-		Tenets: []Tenet{
-			{ID: "tenet-1", Name: "Tenet 1", Code: "code1"},
-			{ID: "tenet-2", Name: "Tenet 2", Code: "code2"},
-			{ID: "tenet-3", Name: "Tenet 3", Code: "code3"},
+	existing := createMergeTestPolicy("test-policy", 1, "Description")
+	existing.Tenets = []*Tenet{
+		{
+			Id:    "req-001-plan-001-0",
+			Title: "Tenet 1",
+			Code:  "code_1",
+		},
+		{
+			Id:    "req-002-plan-002-0",
+			Title: "Tenet 2",
+			Code:  "code_2",
 		},
 	}
 
-	generated := AmpelPolicy{
-		Name:    "Policy",
-		Version: "2.0.0",
-		Rule:    "all(tenets)",
-		Tenets: []Tenet{
-			{ID: "tenet-1", Name: "Tenet 1", Code: "newcode1"},
-			// tenet-2 and tenet-3 are not in generated (orphaned)
+	generated := createMergeTestPolicy("test-policy", 2, "Description")
+	generated.Tenets = []*Tenet{
+		{
+			Id:    "req-001-plan-001-0",
+			Title: "Tenet 1",
+			Code:  "new_code_1",
 		},
+		// req-002 is removed from Gemara, should be orphaned
 	}
 
 	merged, stats, err := MergePolicy(existing, generated)
 	require.NoError(t, err)
 
-	// Verify only tenet-1 remains
-	assert.Equal(t, 1, len(merged.Tenets))
-	assert.Equal(t, "tenet-1", merged.Tenets[0].ID)
+	// Verify only one tenet remains
+	assert.Len(t, merged.Tenets, 1)
+	assert.Equal(t, "req-001-plan-001-0", merged.Tenets[0].Id)
 
 	// Verify stats
 	assert.Equal(t, 1, stats.TenetsPreserved)
 	assert.Equal(t, 0, stats.TenetsAdded)
-	assert.Equal(t, 2, stats.TenetsRemoved)
+	assert.Equal(t, 1, stats.TenetsRemoved)
 }
 
-// TestMergePolicy_ValidationFailure verifies that validation errors are caught.
+// TestMergePolicy_ValidationFailure verifies that validation errors are returned.
 func TestMergePolicy_ValidationFailure(t *testing.T) {
-	existing := AmpelPolicy{
-		Name:    "Policy",
-		Version: "1.0.0",
-		Rule:    "all(tenets)",
-		Tenets: []Tenet{
-			{ID: "tenet-1", Name: "Tenet", Code: "code"},
+	existing := createMergeTestPolicy("test-policy", 1, "Description")
+	existing.Tenets = []*Tenet{
+		{
+			Id:    "req-001-plan-001-0",
+			Title: "Tenet",
+			Code:  "true",
 		},
 	}
 
-	// Generated policy with invalid tenet (missing required fields)
-	generated := AmpelPolicy{
-		Name:    "Policy",
-		Version: "2.0.0",
-		Rule:    "all(tenets)",
-		Tenets: []Tenet{
-			{ID: "tenet-1", Name: "", Code: ""}, // Invalid: missing name and code
+	// Generated policy with invalid tenet (missing code)
+	generated := createMergeTestPolicy("test-policy", 2, "Description")
+	generated.Tenets = []*Tenet{
+		{
+			Id:    "req-001-plan-001-0",
+			Title: "Tenet",
+			Code:  "", // Invalid: empty code
 		},
 	}
+
+	// Override existing code with empty (which would fail validation)
+	existing.Tenets[0].Code = ""
 
 	_, _, err := MergePolicy(existing, generated)
-	require.Error(t, err)
+	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "validation failed")
 }
 
 // TestMergePolicy_EmptyExisting verifies merging with empty existing policy.
 func TestMergePolicy_EmptyExisting(t *testing.T) {
-	existing := AmpelPolicy{
-		Name:    "Policy",
-		Version: "1.0.0",
-		Rule:    "all(tenets)",
-		Tenets:  []Tenet{}, // No existing tenets
-	}
+	existing := createMergeTestPolicy("test-policy", 1, "Description")
+	// No tenets
 
-	generated := AmpelPolicy{
-		Name:    "Policy",
-		Version: "2.0.0",
-		Rule:    "all(tenets)",
-		Tenets: []Tenet{
-			{ID: "tenet-1", Name: "Tenet 1", Code: "code1"},
-			{ID: "tenet-2", Name: "Tenet 2", Code: "code2"},
+	generated := createMergeTestPolicy("test-policy", 2, "Description")
+	generated.Tenets = []*Tenet{
+		{
+			Id:    "req-001-plan-001-0",
+			Title: "New Tenet",
+			Code:  "new_code",
 		},
 	}
 
@@ -329,65 +291,75 @@ func TestMergePolicy_EmptyExisting(t *testing.T) {
 	require.NoError(t, err)
 
 	// All tenets should be added
-	assert.Equal(t, 2, len(merged.Tenets))
+	assert.Len(t, merged.Tenets, 1)
 	assert.Equal(t, 0, stats.TenetsPreserved)
-	assert.Equal(t, 2, stats.TenetsAdded)
-	assert.Equal(t, 0, stats.TenetsRemoved)
+	assert.Equal(t, 1, stats.TenetsAdded)
 }
 
-// TestMergePolicy_ComplexScenario tests a complex merge with multiple changes.
+// TestMergePolicy_ComplexScenario verifies a complex merge scenario.
 func TestMergePolicy_ComplexScenario(t *testing.T) {
-	existing := AmpelPolicy{
-		Name:    "Complex Policy",
-		Version: "1.0.0",
-		Rule:    "all(tenets)",
-		Tenets: []Tenet{
-			{ID: "tenet-1", Name: "Keep", Code: "manual1", Parameters: map[string]interface{}{"p1": 1}},
-			{ID: "tenet-2", Name: "Remove", Code: "manual2"},
-			{ID: "tenet-3", Name: "Update", Code: "manual3", Parameters: map[string]interface{}{"p3": 3}},
+	existing := createMergeTestPolicy("test-policy", 1, "Old description")
+	existing.Tenets = []*Tenet{
+		{
+			Id:    "tenet-1",
+			Title: "Tenet One",
+			Code:  "manual_code_1",
+		},
+		{
+			Id:    "tenet-2",
+			Title: "Tenet Two",
+			Code:  "manual_code_2",
+		},
+		{
+			Id:    "tenet-3",
+			Title: "Tenet Three",
+			Code:  "manual_code_3",
 		},
 	}
 
-	generated := AmpelPolicy{
-		Name:    "Complex Policy",
-		Version: "2.0.0",
-		Rule:    "any(tenets)",
-		Tenets: []Tenet{
-			{ID: "tenet-1", Name: "Keep Updated", Code: "gen1", Parameters: map[string]interface{}{"p1": 999}},
-			{ID: "tenet-3", Name: "Update Updated", Code: "gen3", Parameters: map[string]interface{}{"p3": 999}},
-			{ID: "tenet-4", Name: "Add", Code: "gen4"},
+	generated := createMergeTestPolicy("test-policy", 2, "New description")
+	generated.Tenets = []*Tenet{
+		{
+			Id:    "tenet-1",
+			Title: "Updated Tenet One",
+			Code:  "generated_code_1",
+		},
+		// tenet-2 removed (orphaned)
+		{
+			Id:    "tenet-3",
+			Title: "Updated Tenet Three",
+			Code:  "generated_code_3",
+		},
+		{
+			Id:    "tenet-4",
+			Title: "New Tenet Four",
+			Code:  "generated_code_4",
 		},
 	}
 
 	merged, stats, err := MergePolicy(existing, generated)
 	require.NoError(t, err)
 
-	// Verify correct tenets
-	assert.Equal(t, 3, len(merged.Tenets))
+	// Verify results
+	assert.Len(t, merged.Tenets, 3) // tenet-1, tenet-3, tenet-4
 
-	// Verify tenet-1 (preserved)
-	assert.Equal(t, "tenet-1", merged.Tenets[0].ID)
-	assert.Equal(t, "Keep Updated", merged.Tenets[0].Name)
-	assert.Equal(t, "manual1", merged.Tenets[0].Code) // Preserved
-	assert.Equal(t, 1, merged.Tenets[0].Parameters["p1"]) // Preserved
+	// tenet-1: preserved code, updated title
+	assert.Equal(t, "tenet-1", merged.Tenets[0].Id)
+	assert.Equal(t, "Updated Tenet One", merged.Tenets[0].Title)
+	assert.Equal(t, "manual_code_1", merged.Tenets[0].Code)
 
-	// Verify tenet-3 (preserved)
-	assert.Equal(t, "tenet-3", merged.Tenets[1].ID)
-	assert.Equal(t, "Update Updated", merged.Tenets[1].Name)
-	assert.Equal(t, "manual3", merged.Tenets[1].Code) // Preserved
-	assert.Equal(t, 3, merged.Tenets[1].Parameters["p3"]) // Preserved
+	// tenet-3: preserved code, updated title
+	assert.Equal(t, "tenet-3", merged.Tenets[1].Id)
+	assert.Equal(t, "Updated Tenet Three", merged.Tenets[1].Title)
+	assert.Equal(t, "manual_code_3", merged.Tenets[1].Code)
 
-	// Verify tenet-4 (added)
-	assert.Equal(t, "tenet-4", merged.Tenets[2].ID)
-	assert.Equal(t, "Add", merged.Tenets[2].Name)
-	assert.Equal(t, "gen4", merged.Tenets[2].Code)
+	// tenet-4: brand new
+	assert.Equal(t, "tenet-4", merged.Tenets[2].Id)
+	assert.Equal(t, "New Tenet Four", merged.Tenets[2].Title)
+	assert.Equal(t, "generated_code_4", merged.Tenets[2].Code)
 
 	// Verify stats
-	assert.Equal(t, 2, stats.TenetsPreserved)
-	assert.Equal(t, 1, stats.TenetsAdded)
-	assert.Equal(t, 1, stats.TenetsRemoved)
-
-	// Verify policy-level fields updated
-	assert.Equal(t, "2.0.0", merged.Version)
-	assert.Equal(t, "any(tenets)", merged.Rule)
+	assert.Equal(t, 2, stats.TenetsPreserved) // tenet-1, tenet-3
+	assert.Equal(t, 1, stats.TenetsAdded)     // tenet-4
+	assert.Equal(t, 1, stats.TenetsRemoved)   // tenet-2
 }

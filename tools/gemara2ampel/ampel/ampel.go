@@ -3,10 +3,11 @@ package ampel
 import (
 	"fmt"
 	"path"
+	"strconv"
 	"strings"
 	"unicode"
 
-	"github.com/ossf/gemara"
+	"github.com/gemaraproj/go-gemara"
 )
 
 // FromPolicy converts a Gemara Layer-3 Policy to Ampel policy format.
@@ -32,20 +33,18 @@ func FromPolicy(policy *gemara.Policy, opts ...TransformOption) (AmpelPolicy, er
 	options.applyDefaults()
 
 	ampelPolicy := AmpelPolicy{
-		Name:     policy.Title,
-		Metadata: make(map[string]string),
-		Tenets:   []Tenet{},
-		Rule:     options.DefaultRule,
+		Id: policy.Metadata.Id,
+		Meta: &Meta{
+			Runtime:     "cel@v14.0",
+			Description: policy.Metadata.Description,
+			AssertMode:  ruleToAssertMode(options.DefaultRule),
+		},
+		Tenets: []*Tenet{},
 	}
 
 	// Transform metadata
 	if err := buildMetadata(policy, &ampelPolicy); err != nil {
 		return ampelPolicy, fmt.Errorf("error building metadata: %w", err)
-	}
-
-	// Process imports
-	if err := processImports(&policy.Imports, &ampelPolicy, options); err != nil {
-		return ampelPolicy, fmt.Errorf("error processing imports: %w", err)
 	}
 
 	// Convert assessment plans to tenets
@@ -65,71 +64,32 @@ func FromPolicy(policy *gemara.Policy, opts ...TransformOption) (AmpelPolicy, er
 	return ampelPolicy, nil
 }
 
-// buildMetadata extracts metadata from Gemara policy and populates Ampel policy metadata.
-func buildMetadata(policy *gemara.Policy, ampelPolicy *AmpelPolicy) error {
-	// Set version and description
-	ampelPolicy.Version = policy.Metadata.Version
-	ampelPolicy.Description = policy.Metadata.Description
-
-	// Add policy ID to metadata
-	ampelPolicy.Metadata["policy-id"] = policy.Metadata.Id
-
-	// Add author information
-	ampelPolicy.Metadata["author"] = policy.Metadata.Author.Name
-	if policy.Metadata.Author.Id != "" {
-		ampelPolicy.Metadata["author-id"] = policy.Metadata.Author.Id
+// ruleToAssertMode converts a policy rule string to AssertMode
+// "all(tenets)" -> "AND", "any(tenets)" -> "OR"
+func ruleToAssertMode(rule string) string {
+	if strings.Contains(rule, "any") {
+		return "OR"
 	}
-
-	// Add RACI contacts to metadata
-	if len(policy.Contacts.Responsible) > 0 {
-		var responsible []string
-		for _, contact := range policy.Contacts.Responsible {
-			responsible = append(responsible, contact.Name)
-		}
-		ampelPolicy.Metadata["responsible"] = strings.Join(responsible, ", ")
-	}
-
-	if len(policy.Contacts.Accountable) > 0 {
-		var accountable []string
-		for _, contact := range policy.Contacts.Accountable {
-			accountable = append(accountable, contact.Name)
-		}
-		ampelPolicy.Metadata["accountable"] = strings.Join(accountable, ", ")
-	}
-
-	// Add scope summary to metadata
-	if len(policy.Scope.In.Technologies) > 0 {
-		ampelPolicy.Metadata["scope-technologies"] = strings.Join(policy.Scope.In.Technologies, ", ")
-	}
-	if len(policy.Scope.In.Geopolitical) > 0 {
-		ampelPolicy.Metadata["scope-regions"] = strings.Join(policy.Scope.In.Geopolitical, ", ")
-	}
-
-	return nil
+	return "AND"
 }
 
-// processImports converts Gemara imports to Ampel policy imports.
-func processImports(imports *gemara.Imports, ampelPolicy *AmpelPolicy, options *TransformOptions) error {
-	if len(imports.Policies) > 0 {
-		ampelPolicy.Imports = append(ampelPolicy.Imports, imports.Policies...)
-	}
-
-	// Add catalog and guidance references as metadata
-	if len(imports.Catalogs) > 0 {
-		var catalogRefs []string
-		for _, catalog := range imports.Catalogs {
-			catalogRefs = append(catalogRefs, catalog.ReferenceId)
+// buildMetadata extracts metadata from Gemara policy and populates Ampel policy metadata.
+func buildMetadata(policy *gemara.Policy, ampelPolicy *AmpelPolicy) error {
+	// Parse version string to int64
+	version := int64(0)
+	if policy.Metadata.Version != "" {
+		// Try to parse version (e.g., "1.0.0" -> 1)
+		parts := strings.Split(policy.Metadata.Version, ".")
+		if len(parts) > 0 {
+			if v, err := strconv.ParseInt(parts[0], 10, 64); err == nil {
+				version = v
+			}
 		}
-		ampelPolicy.Metadata["catalog-references"] = strings.Join(catalogRefs, ", ")
 	}
+	ampelPolicy.Meta.Version = version
 
-	if len(imports.Guidance) > 0 {
-		var guidanceRefs []string
-		for _, guidance := range imports.Guidance {
-			guidanceRefs = append(guidanceRefs, guidance.ReferenceId)
-		}
-		ampelPolicy.Metadata["guidance-references"] = strings.Join(guidanceRefs, ", ")
-	}
+	// Note: The official Ampel policy format doesn't include author, contacts, or scope
+	// These could be added to a custom metadata extension if needed
 
 	return nil
 }
@@ -139,17 +99,11 @@ func assessmentPlanToTenets(
 	plan gemara.AssessmentPlan,
 	policy *gemara.Policy,
 	options *TransformOptions,
-) ([]Tenet, error) {
-	var tenets []Tenet
+) ([]*Tenet, error) {
+	var tenets []*Tenet
 
 	// Get evidence requirements
 	evidenceReq := plan.EvidenceRequirements
-
-	// Get requirement details from catalog if available
-	requirementText := ""
-	if options.Catalog != nil {
-		requirementText = lookupRequirementText(plan.RequirementId, options.Catalog)
-	}
 
 	// Process each evaluation method
 	methodIndex := 0
@@ -204,22 +158,34 @@ func assessmentPlanToTenets(
 			}
 		}
 
-		// Build tenet description
-		description := evidenceReq
-		if requirementText != "" && evidenceReq != "" {
-			description = requirementText + " - " + evidenceReq
-		} else if requirementText != "" {
-			description = requirementText
+		// Build tenet title - use method description or evidence requirement
+		title := getTenetName(method, evidenceReq)
+
+		// Create tenet with official Ampel format
+		tenet := &Tenet{
+			Id:      fmt.Sprintf("%s-%s-%d", plan.RequirementId, plan.Id, methodIndex),
+			Title:   title,
+			Runtime: "cel@v14.0",
+			Code:    celCode,
 		}
 
-		// Create tenet
-		tenet := Tenet{
-			ID:               fmt.Sprintf("%s-%s-%d", plan.RequirementId, plan.Id, methodIndex),
-			Name:             getTenetName(method, evidenceReq),
-			Description:      description,
-			Code:             celCode,
-			AttestationTypes: attestationTypes,
-			Parameters:       tenetParams,
+		// Add PredicateSpec with attestation types
+		if len(attestationTypes) > 0 {
+			tenet.Predicates = &PredicateSpec{
+				Types: attestationTypes,
+			}
+		}
+
+		// Store parameters in Outputs using the official Output format
+		if len(tenetParams) > 0 {
+			tenet.Outputs = make(map[string]*Output)
+			for key := range tenetParams {
+				// Create CEL code to access the parameter from context
+				celCode := fmt.Sprintf("context.%s", key)
+				tenet.Outputs[key] = &Output{
+					Code: celCode,
+				}
+			}
 		}
 
 		tenets = append(tenets, tenet)
@@ -260,21 +226,6 @@ func isAutomatedMethod(methodType string) bool {
 	return automatedTypes[methodType]
 }
 
-// lookupRequirementText finds the requirement text from a catalog.
-func lookupRequirementText(requirementId string, catalog *gemara.Catalog) string {
-	// Search through all control families and controls in the catalog
-	for _, family := range catalog.ControlFamilies {
-		for _, control := range family.Controls {
-			for _, req := range control.AssessmentRequirements {
-				if req.Id == requirementId {
-					return req.Text
-				}
-			}
-		}
-	}
-	return ""
-}
-
 // FromPolicies converts multiple Gemara Layer-3 Policies to an Ampel PolicySet.
 //
 // This function creates a PolicySet with inline policies from the provided Gemara policies.
@@ -292,23 +243,20 @@ func FromPolicies(policies []*gemara.Policy, opts ...PolicySetOption) (PolicySet
 		return PolicySet{}, fmt.Errorf("at least one policy is required")
 	}
 
-	policySet := PolicySet{
-		Policies: []PolicyReference{},
-		Metadata: make(map[string]string),
-	}
-
 	// Apply policy set options
 	psOptions := &PolicySetOptions{}
 	for _, opt := range opts {
 		opt(psOptions)
 	}
 
-	// Set PolicySet metadata
-	policySet.Name = psOptions.Name
-	policySet.Description = psOptions.Description
-	policySet.Version = psOptions.Version
-	if psOptions.Metadata != nil {
-		policySet.Metadata = psOptions.Metadata
+	policySet := PolicySet{
+		Id: psOptions.Name,
+		Meta: &PolicySetMetadata{
+			Description:    psOptions.Description,
+			Version:        psOptions.Version,
+			CustomMetadata: psOptions.Metadata,
+		},
+		Policies: []*PolicyReference{},
 	}
 
 	// Convert each Gemara policy to Ampel policy
@@ -318,15 +266,17 @@ func FromPolicies(policies []*gemara.Policy, opts ...PolicySetOption) (PolicySet
 			return policySet, fmt.Errorf("error converting policy %s: %w", gemaraPolicy.Metadata.Id, err)
 		}
 
-		// Create inline policy reference
-		policyRef := PolicyReference{
-			ID:     gemaraPolicy.Metadata.Id,
-			Policy: &ampelPolicy,
+		// Create inline policy reference by copying fields from AmpelPolicy
+		policyRef := &PolicyReference{
+			Id:      ampelPolicy.Id,
+			Meta:    ampelPolicy.Meta,
+			Tenets:  ampelPolicy.Tenets,
+			Context: ampelPolicy.Context,
 		}
 
-		// Add metadata if provided
-		if psOptions.PolicyMetadata != nil {
-			if meta, ok := psOptions.PolicyMetadata[gemaraPolicy.Metadata.Id]; ok {
+		// Override metadata if provided in options
+		if psOptions.Meta != nil {
+			if meta, ok := psOptions.Meta[gemaraPolicy.Metadata.Id]; ok {
 				policyRef.Meta = meta
 			}
 		}
@@ -353,11 +303,6 @@ func FromPolicies(policies []*gemara.Policy, opts ...PolicySetOption) (PolicySet
 //   - WithCatalog: Include catalog data to enrich tenet descriptions
 //   - WithCELTemplates: Custom CEL code templates for method types
 func FromPolicyWithImports(policy *gemara.Policy, opts ...PolicySetOption) (PolicySet, error) {
-	policySet := PolicySet{
-		Policies: []PolicyReference{},
-		Metadata: make(map[string]string),
-	}
-
 	// Apply policy set options
 	psOptions := &PolicySetOptions{}
 	for _, opt := range opts {
@@ -365,26 +310,29 @@ func FromPolicyWithImports(policy *gemara.Policy, opts ...PolicySetOption) (Poli
 	}
 
 	// Set PolicySet metadata (default to main policy metadata if not provided)
-	if psOptions.Name != "" {
-		policySet.Name = psOptions.Name
-	} else {
-		policySet.Name = policy.Title
+	policySetId := psOptions.Name
+	if policySetId == "" {
+		policySetId = policy.Metadata.Id + "-set"
 	}
 
-	if psOptions.Description != "" {
-		policySet.Description = psOptions.Description
-	} else {
-		policySet.Description = policy.Metadata.Description
+	policySetDesc := psOptions.Description
+	if policySetDesc == "" {
+		policySetDesc = policy.Metadata.Description
 	}
 
-	if psOptions.Version != "" {
-		policySet.Version = psOptions.Version
-	} else {
-		policySet.Version = policy.Metadata.Version
+	policySetVersion := psOptions.Version
+	if policySetVersion == "" {
+		policySetVersion = policy.Metadata.Version
 	}
 
-	if psOptions.Metadata != nil {
-		policySet.Metadata = psOptions.Metadata
+	policySet := PolicySet{
+		Id: policySetId,
+		Meta: &PolicySetMetadata{
+			Description:    policySetDesc,
+			Version:        policySetVersion,
+			CustomMetadata: psOptions.Metadata,
+		},
+		Policies: []*PolicyReference{},
 	}
 
 	// Convert the main policy
@@ -393,24 +341,27 @@ func FromPolicyWithImports(policy *gemara.Policy, opts ...PolicySetOption) (Poli
 		return policySet, fmt.Errorf("error converting main policy: %w", err)
 	}
 
-	mainPolicyRef := PolicyReference{
-		ID:     policy.Metadata.Id,
-		Policy: &ampelPolicy,
+	// Create inline policy reference
+	mainPolicyRef := &PolicyReference{
+		Id:      ampelPolicy.Id,
+		Meta:    ampelPolicy.Meta,
+		Tenets:  ampelPolicy.Tenets,
+		Context: ampelPolicy.Context,
 	}
 
-	// Add metadata for main policy if provided
-	if psOptions.PolicyMetadata != nil {
-		if meta, ok := psOptions.PolicyMetadata[policy.Metadata.Id]; ok {
+	// Override metadata for main policy if provided
+	if psOptions.Meta != nil {
+		if meta, ok := psOptions.Meta[policy.Metadata.Id]; ok {
 			mainPolicyRef.Meta = meta
 		}
 	}
 
 	policySet.Policies = append(policySet.Policies, mainPolicyRef)
 
-	// Add imported policies as references
+	// Add imported policies as external references
 	for _, importedPolicyRef := range policy.Imports.Policies {
-		policyRef := PolicyReference{
-			ID: extractPolicyIdFromReference(importedPolicyRef),
+		policyRef := &PolicyReference{
+			Id: extractPolicyIdFromReference(importedPolicyRef),
 			Source: &PolicySource{
 				Location: PolicyLocation{
 					URI: importedPolicyRef,
@@ -419,8 +370,8 @@ func FromPolicyWithImports(policy *gemara.Policy, opts ...PolicySetOption) (Poli
 		}
 
 		// Add metadata for imported policy if provided
-		if psOptions.PolicyMetadata != nil {
-			if meta, ok := psOptions.PolicyMetadata[policyRef.ID]; ok {
+		if psOptions.Meta != nil {
+			if meta, ok := psOptions.Meta[policyRef.Id]; ok {
 				policyRef.Meta = meta
 			}
 		}

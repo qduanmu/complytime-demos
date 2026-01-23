@@ -4,19 +4,20 @@ import "fmt"
 
 // MergeStats contains statistics about a policy merge operation.
 type MergeStats struct {
-	TenetsPreserved int // Existing tenets with preserved code/params
+	TenetsPreserved int // Existing tenets with preserved code/outputs
 	TenetsAdded     int // New tenets from Gemara
 	TenetsRemoved   int // Orphaned tenets deleted
 }
 
 // MergePolicy merges a generated policy with an existing policy, preserving manual edits
-// to CEL code and parameters while updating metadata and other fields from the generated policy.
+// to CEL code and outputs while updating metadata and other fields from the generated policy.
 //
 // The merge algorithm:
-// 1. Updates all policy-level fields (name, version, description, metadata, imports, rule) from generated
+// 1. Updates all policy-level fields (id, meta) from generated
 // 2. For each tenet in the generated policy:
-//    - If a matching tenet exists in the existing policy (by ID), preserve its code and parameters
-//    - If no match exists, add the new tenet from generated
+//   - If a matching tenet exists in the existing policy (by Id), preserve its code and outputs
+//   - If no match exists, add the new tenet from generated
+//
 // 3. Remove any tenets in existing that are not in generated (orphaned)
 // 4. Validate the merged policy
 //
@@ -26,25 +27,22 @@ func MergePolicy(existing, generated AmpelPolicy) (AmpelPolicy, MergeStats, erro
 
 	// Start with the generated policy as the base (updates all metadata)
 	merged := AmpelPolicy{
-		Name:        generated.Name,
-		Description: generated.Description,
-		Version:     generated.Version,
-		Metadata:    generated.Metadata,
-		Imports:     generated.Imports,
-		Rule:        generated.Rule,
-		Tenets:      make([]Tenet, 0, len(generated.Tenets)),
+		Id:      generated.Id,
+		Meta:    generated.Meta,
+		Context: generated.Context,
+		Tenets:  make([]*Tenet, 0, len(generated.Tenets)),
 	}
 
-	// Build map of existing tenets by ID for fast lookup
-	existingTenets := make(map[string]Tenet)
+	// Build map of existing tenets by Id for fast lookup
+	existingTenets := make(map[string]*Tenet)
 	for _, tenet := range existing.Tenets {
-		existingTenets[tenet.ID] = tenet
+		existingTenets[tenet.Id] = tenet
 	}
 
 	// Process each tenet in the generated policy
 	for _, generatedTenet := range generated.Tenets {
-		if existingTenet, found := existingTenets[generatedTenet.ID]; found {
-			// Tenet exists - merge it (preserve code and parameters)
+		if existingTenet, found := existingTenets[generatedTenet.Id]; found {
+			// Tenet exists - merge it (preserve code and outputs)
 			mergedTenet := mergeTenet(existingTenet, generatedTenet)
 			merged.Tenets = append(merged.Tenets, mergedTenet)
 			stats.TenetsPreserved++
@@ -58,7 +56,7 @@ func MergePolicy(existing, generated AmpelPolicy) (AmpelPolicy, MergeStats, erro
 	// Calculate removed tenets (in existing but not in generated)
 	generatedTenetIDs := make(map[string]bool)
 	for _, tenet := range generated.Tenets {
-		generatedTenetIDs[tenet.ID] = true
+		generatedTenetIDs[tenet.Id] = true
 	}
 	for id := range existingTenets {
 		if !generatedTenetIDs[id] {
@@ -74,15 +72,14 @@ func MergePolicy(existing, generated AmpelPolicy) (AmpelPolicy, MergeStats, erro
 	return merged, stats, nil
 }
 
-// mergeTenet merges a single tenet, preserving code and parameters from existing
+// mergeTenet merges a single tenet, preserving code and outputs from existing
 // while updating other fields from generated.
-func mergeTenet(existing, generated Tenet) Tenet {
-	return Tenet{
-		ID:               generated.ID, // Use generated (should be same)
-		Name:             generated.Name,
-		Description:      generated.Description,
-		Code:             existing.Code,       // PRESERVE manual CEL edits
-		AttestationTypes: generated.AttestationTypes,
-		Parameters:       existing.Parameters, // PRESERVE manual parameter edits
+func mergeTenet(existing, generated *Tenet) *Tenet {
+	return &Tenet{
+		Id:      generated.Id,      // Use generated (should be same)
+		Title:   generated.Title,   // Update title from generated
+		Runtime: generated.Runtime, // Update runtime from generated
+		Code:    existing.Code,     // PRESERVE manual CEL edits
+		Outputs: existing.Outputs,  // PRESERVE manual outputs (parameters, etc.)
 	}
 }

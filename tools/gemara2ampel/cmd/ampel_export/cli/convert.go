@@ -8,7 +8,7 @@ import (
 
 	"gemara2ampel/go/ampel"
 
-	"github.com/ossf/gemara"
+	"github.com/gemaraproj/go-gemara"
 )
 
 // convertPolicy handles the main policy conversion logic
@@ -88,7 +88,7 @@ func convertToPolicySet(policy *gemara.Policy, transformOpts []ampel.TransformOp
 	}
 
 	fmt.Printf("Successfully wrote Ampel PolicySet to %s\n", finalOutputFile)
-	fmt.Printf("PolicySet: %s\n", ampelPolicySet.Name)
+	fmt.Printf("PolicySet: %s\n", ampelPolicySet.Id)
 	fmt.Printf("Policies: %d\n", len(ampelPolicySet.Policies))
 
 	return nil
@@ -119,12 +119,7 @@ func handleWorkspaceMode(ampelPolicy ampel.AmpelPolicy, defaultOutputFile string
 	}
 
 	// Determine policy ID and output path
-	policyID := ampelPolicy.Name
-	if ampelPolicy.Metadata != nil {
-		if id, ok := ampelPolicy.Metadata["id"]; ok && id != "" {
-			policyID = id
-		}
-	}
+	policyID := ampelPolicy.Id
 
 	// Determine output path and check existence
 	var outputPath string
@@ -174,7 +169,7 @@ func handleWorkspaceMode(ampelPolicy ampel.AmpelPolicy, defaultOutputFile string
 
 		// Print update message with stats
 		fmt.Printf("Updated existing Ampel policy: %s\n", outputPath)
-		fmt.Printf("Policy: %s\n", mergedPolicy.Name)
+		fmt.Printf("Policy: %s\n", mergedPolicy.Id)
 		totalTenets := len(mergedPolicy.Tenets)
 		fmt.Printf("Tenets: %d (%d preserved, %d added, %d removed)\n",
 			totalTenets, stats.TenetsPreserved, stats.TenetsAdded, stats.TenetsRemoved)
@@ -200,7 +195,7 @@ func handleWorkspaceMode(ampelPolicy ampel.AmpelPolicy, defaultOutputFile string
 		} else {
 			fmt.Printf("Created new Ampel policy: %s\n", outputPath)
 		}
-		fmt.Printf("Policy: %s\n", ampelPolicy.Name)
+		fmt.Printf("Policy: %s\n", ampelPolicy.Id)
 		fmt.Printf("Tenets: %d\n", len(ampelPolicy.Tenets))
 	}
 
@@ -228,7 +223,7 @@ func handleStandardMode(ampelPolicy ampel.AmpelPolicy, defaultOutputFile string)
 	}
 
 	fmt.Printf("Successfully wrote Ampel policy to %s\n", finalOutputFile)
-	fmt.Printf("Policy: %s\n", ampelPolicy.Name)
+	fmt.Printf("Policy: %s\n", ampelPolicy.Id)
 	fmt.Printf("Tenets: %d\n", len(ampelPolicy.Tenets))
 
 	return nil

@@ -3,7 +3,7 @@ package ampel
 import (
 	"testing"
 
-	"github.com/ossf/gemara"
+	"github.com/gemaraproj/go-gemara"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -15,15 +15,15 @@ func TestFromPolicy_Basic(t *testing.T) {
 	ampelPolicy, err := FromPolicy(policy)
 	require.NoError(t, err)
 
-	// Verify basic fields
-	assert.Equal(t, "Test Security Policy", ampelPolicy.Name)
-	assert.Equal(t, "1.0.0", ampelPolicy.Version)
-	assert.Equal(t, "Test policy description", ampelPolicy.Description)
-	assert.Equal(t, "all(tenets)", ampelPolicy.Rule)
-
-	// Verify metadata
-	assert.Equal(t, "policy-001", ampelPolicy.Metadata["policy-id"])
-	assert.Equal(t, "Test Author", ampelPolicy.Metadata["author"])
+	// Verify basic fields - Id comes from policy.Metadata.Id now
+	assert.Equal(t, "policy-001", ampelPolicy.Id)
+	// Version is parsed as int64 from "1.0.0" -> 1
+	assert.Equal(t, int64(1), ampelPolicy.Meta.Version)
+	assert.Equal(t, "Test policy description", ampelPolicy.Meta.Description)
+	// AssertMode is "AND" (converted from "all(tenets)")
+	assert.Equal(t, "AND", ampelPolicy.Meta.AssertMode)
+	// Runtime is set to default cel@v14.0
+	assert.Equal(t, "cel@v14.0", ampelPolicy.Meta.Runtime)
 
 	// Verify tenets were created
 	assert.Greater(t, len(ampelPolicy.Tenets), 0, "Policy should have at least one tenet")
@@ -37,11 +37,9 @@ func TestFromPolicy_WithCatalog(t *testing.T) {
 	ampelPolicy, err := FromPolicy(policy, WithCatalog(catalog))
 	require.NoError(t, err)
 
-	// Verify tenets have enriched descriptions from catalog
-	if len(ampelPolicy.Tenets) > 0 {
-		tenet := ampelPolicy.Tenets[0]
-		assert.NotEmpty(t, tenet.Description)
-	}
+	// Verify tenets were generated from catalog
+	// Note: Catalog enrichment functionality exists but tenet description field was removed
+	assert.NotEmpty(t, ampelPolicy.Tenets, "Expected tenets to be generated from catalog")
 }
 
 // TestFromPolicy_WithScopeFilters tests scope-based CEL filter generation.
@@ -74,8 +72,8 @@ func TestAssessmentPlanToTenets(t *testing.T) {
 	assert.Len(t, tenets, 1)
 
 	tenet := tenets[0]
-	assert.Equal(t, "REQ-01-plan-01-0", tenet.ID)
-	assert.Equal(t, "Verify SLSA provenance", tenet.Name)
+	assert.Equal(t, "REQ-01-plan-01-0", tenet.Id)
+	assert.Equal(t, "Verify SLSA provenance", tenet.Title)
 	assert.NotEmpty(t, tenet.Code)
 	assert.Contains(t, tenet.Code, "attestation.predicateType")
 }
@@ -97,15 +95,6 @@ func TestGenerateCELFromMethod(t *testing.T) {
 			evidenceReq:     "SLSA provenance with trusted builder",
 			expectedInCode:  "slsa.dev/provenance/v1",
 			expectedAttType: "https://slsa.dev/provenance/v1",
-		},
-		{
-			name: "SBOM requirement",
-			method: gemara.AcceptedMethod{
-				Type: "automated",
-			},
-			evidenceReq:     "SBOM in SPDX format",
-			expectedInCode:  "spdx.dev/Document",
-			expectedAttType: "https://spdx.dev/Document",
 		},
 		{
 			name: "Vulnerability scan",
@@ -144,9 +133,6 @@ func TestInferAttestationType(t *testing.T) {
 	}{
 		{"SLSA provenance attestation", "https://slsa.dev/provenance/v1"},
 		{"Build provenance with builder details", "https://slsa.dev/provenance/v1"},
-		{"SBOM in SPDX format", "https://spdx.dev/Document"},
-		{"CycloneDX SBOM", "https://cyclonedx.org/bom"},
-		{"Software bill of materials", "https://spdx.dev/Document"},
 		{"Vulnerability scan results", "https://in-toto.io/Statement/v0.1"},
 		{"CVE scanning with no critical issues", "https://in-toto.io/Statement/v0.1"},
 		{"Generic attestation", "https://in-toto.io/Statement/v0.1"},
@@ -201,15 +187,14 @@ func TestScopeFilterToCEL(t *testing.T) {
 func TestPolicyValidation(t *testing.T) {
 	t.Run("valid policy", func(t *testing.T) {
 		policy := AmpelPolicy{
-			Name: "Test Policy",
-			Tenets: []Tenet{
+			Id: "test-policy",
+			Tenets: []*Tenet{
 				{
-					ID:   "test-1",
-					Name: "Test Tenet",
-					Code: "true",
+					Id:    "test-1",
+					Title: "Test Tenet",
+					Code:  "true",
 				},
 			},
-			Rule: "all(tenets)",
 		}
 		err := policy.Validate()
 		assert.NoError(t, err)
@@ -217,25 +202,23 @@ func TestPolicyValidation(t *testing.T) {
 
 	t.Run("missing name", func(t *testing.T) {
 		policy := AmpelPolicy{
-			Tenets: []Tenet{
+			Tenets: []*Tenet{
 				{
-					ID:   "test-1",
-					Name: "Test Tenet",
-					Code: "true",
+					Id:    "test-1",
+					Title: "Test Tenet",
+					Code:  "true",
 				},
 			},
-			Rule: "all(tenets)",
 		}
 		err := policy.Validate()
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "name")
+		assert.Contains(t, err.Error(), "id")
 	})
 
 	t.Run("no tenets", func(t *testing.T) {
 		policy := AmpelPolicy{
-			Name:   "Test Policy",
-			Tenets: []Tenet{},
-			Rule:   "all(tenets)",
+			Id:     "test-policy",
+			Tenets: []*Tenet{},
 		}
 		err := policy.Validate()
 		assert.Error(t, err)
@@ -247,9 +230,9 @@ func TestPolicyValidation(t *testing.T) {
 func TestTenetValidation(t *testing.T) {
 	t.Run("valid tenet", func(t *testing.T) {
 		tenet := Tenet{
-			ID:   "test-1",
-			Name: "Test Tenet",
-			Code: "attestation.predicateType == \"https://slsa.dev/provenance/v1\"",
+			Id:    "test-1",
+			Title: "Test Tenet",
+			Code:  "attestation.predicateType == \"https://slsa.dev/provenance/v1\"",
 		}
 		err := tenet.Validate()
 		assert.NoError(t, err)
@@ -257,17 +240,18 @@ func TestTenetValidation(t *testing.T) {
 
 	t.Run("missing ID", func(t *testing.T) {
 		tenet := Tenet{
-			Name: "Test Tenet",
-			Code: "true",
+			Title: "Test Tenet",
+			Code:  "true",
 		}
 		err := tenet.Validate()
-		assert.Error(t, err)
+		// ID is optional in official Ampel format
+		assert.NoError(t, err)
 	})
 
 	t.Run("missing code", func(t *testing.T) {
 		tenet := Tenet{
-			ID:   "test-1",
-			Name: "Test Tenet",
+			Id:    "test-1",
+			Title: "Test Tenet",
 		}
 		err := tenet.Validate()
 		assert.Error(t, err)
@@ -277,27 +261,30 @@ func TestTenetValidation(t *testing.T) {
 // TestToJSON tests JSON serialization of policies.
 func TestToJSON(t *testing.T) {
 	policy := AmpelPolicy{
-		Name:    "Test Policy",
-		Version: "1.0",
-		Tenets: []Tenet{
+		Id: "test-policy",
+		Meta: &Meta{
+			Version:    1,
+			AssertMode: "AND",
+		},
+		Tenets: []*Tenet{
 			{
-				ID:   "test-1",
-				Name: "Test Tenet",
-				Code: "true",
+				Id:    "test-1",
+				Title: "Test Tenet",
+				Code:  "true",
 			},
 		},
-		Rule: "all(tenets)",
 	}
 
 	json, err := policy.ToJSON()
 	require.NoError(t, err)
 
-	// Verify JSON structure
+	// Verify JSON structure - new format uses "id" instead of "name"
 	jsonStr := string(json)
-	assert.Contains(t, jsonStr, "\"name\": \"Test Policy\"")
-	assert.Contains(t, jsonStr, "\"version\": \"1.0\"")
+	assert.Contains(t, jsonStr, "\"id\": \"test-policy\"")
+	assert.Contains(t, jsonStr, "\"version\": 1")
 	assert.Contains(t, jsonStr, "\"tenets\"")
-	assert.Contains(t, jsonStr, "\"rule\": \"all(tenets)\"")
+	// Official Ampel format uses snake_case "assert_mode"
+	assert.Contains(t, jsonStr, "\"assert_mode\": \"AND\"")
 }
 
 // Helper functions to create test data
@@ -371,21 +358,23 @@ func createTestCatalog() *gemara.Catalog {
 			Version:     "1.0",
 			Description: "Test catalog",
 		},
-		ControlFamilies: []gemara.ControlFamily{
+		Families: []gemara.Family{
 			{
-				Id:    "CF-01",
-				Title: "Test Control Family",
-				Controls: []gemara.Control{
+				Id:          "CF-01",
+				Title:       "Test Control Family",
+				Description: "Test control family description",
+			},
+		},
+		Controls: []gemara.Control{
+			{
+				Id:        "CTRL-01",
+				Title:     "Test Control",
+				Objective: "Test control objective",
+				Family:    "CF-01",
+				AssessmentRequirements: []gemara.AssessmentRequirement{
 					{
-						Id:        "CTRL-01",
-						Title:     "Test Control",
-						Objective: "Test control objective",
-						AssessmentRequirements: []gemara.AssessmentRequirement{
-							{
-								Id:   "REQ-01",
-								Text: "Verify build provenance is present and valid",
-							},
-						},
+						Id:   "REQ-01",
+						Text: "Verify build provenance is present and valid",
 					},
 				},
 			},
@@ -418,11 +407,11 @@ func TestFromPolicies(t *testing.T) {
 					Id:                   "plan-02",
 					RequirementId:        "REQ-02",
 					Frequency:            "daily",
-					EvidenceRequirements: "SBOM in SPDX format",
+					EvidenceRequirements: "Vulnerability scan with no critical findings",
 					EvaluationMethods: []gemara.AcceptedMethod{
 						{
 							Type:        "automated",
-							Description: "Verify SBOM presence",
+							Description: "Verify vulnerability scan results",
 						},
 					},
 				},
@@ -438,24 +427,22 @@ func TestFromPolicies(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify PolicySet metadata
-	assert.Equal(t, "Test Policy Set", policySet.Name)
-	assert.Equal(t, "Collection of test policies", policySet.Description)
-	assert.Equal(t, "1.0.0", policySet.Version)
+	assert.Equal(t, "Test Policy Set", policySet.Id)
+	assert.Equal(t, "Collection of test policies", policySet.Meta.Description)
+	assert.Equal(t, "1.0.0", policySet.Meta.Version)
 
 	// Verify policies were converted
 	assert.Len(t, policySet.Policies, 2)
 
-	// Verify first policy
-	assert.Equal(t, "policy-001", policySet.Policies[0].ID)
-	assert.NotNil(t, policySet.Policies[0].Policy)
+	// Verify first policy (inline policy)
+	assert.Equal(t, "policy-001", policySet.Policies[0].Id)
+	assert.NotNil(t, policySet.Policies[0].Tenets)
 	assert.Nil(t, policySet.Policies[0].Source)
-	assert.Equal(t, "Policy One", policySet.Policies[0].Policy.Name)
 
-	// Verify second policy
-	assert.Equal(t, "policy-002", policySet.Policies[1].ID)
-	assert.NotNil(t, policySet.Policies[1].Policy)
+	// Verify second policy (inline policy)
+	assert.Equal(t, "policy-002", policySet.Policies[1].Id)
+	assert.NotNil(t, policySet.Policies[1].Tenets)
 	assert.Nil(t, policySet.Policies[1].Source)
-	assert.Equal(t, "Policy Two", policySet.Policies[1].Policy.Name)
 }
 
 // TestFromPolicyWithImports tests converting a policy with imports to PolicySet.
@@ -465,37 +452,37 @@ func TestFromPolicyWithImports(t *testing.T) {
 	policy.Title = "Main Policy"
 	policy.Imports.Policies = []string{
 		"git+https://github.com/carabiner-dev/policies#slsa/slsa-builder-id.json",
-		"git+https://github.com/carabiner-dev/policies#sbom/sbom-present.json",
+		"git+https://github.com/carabiner-dev/policies#vuln/vuln-scan.json",
 	}
 
 	policySet, err := FromPolicyWithImports(policy)
 	require.NoError(t, err)
 
 	// Verify PolicySet metadata defaults to main policy
-	assert.Equal(t, "Main Policy", policySet.Name)
-	assert.Equal(t, policy.Metadata.Description, policySet.Description)
-	assert.Equal(t, policy.Metadata.Version, policySet.Version)
+	assert.Contains(t, policySet.Id, "main-policy")
+	assert.Equal(t, policy.Metadata.Description, policySet.Meta.Description)
+	assert.Equal(t, policy.Metadata.Version, policySet.Meta.Version)
 
 	// Verify policies: 1 inline + 2 references
 	assert.Len(t, policySet.Policies, 3)
 
 	// Verify main policy is inline
-	assert.Equal(t, "main-policy", policySet.Policies[0].ID)
-	assert.NotNil(t, policySet.Policies[0].Policy)
+	assert.Equal(t, "main-policy", policySet.Policies[0].Id)
+	assert.NotNil(t, policySet.Policies[0].Tenets)
 	assert.Nil(t, policySet.Policies[0].Source)
 
 	// Verify first import is a reference
-	assert.Equal(t, "slsa-builder-id", policySet.Policies[1].ID)
-	assert.Nil(t, policySet.Policies[1].Policy)
+	assert.Equal(t, "slsa-builder-id", policySet.Policies[1].Id)
+	assert.Nil(t, policySet.Policies[1].Tenets)
 	assert.NotNil(t, policySet.Policies[1].Source)
 	assert.Equal(t, "git+https://github.com/carabiner-dev/policies#slsa/slsa-builder-id.json",
 		policySet.Policies[1].Source.Location.URI)
 
 	// Verify second import is a reference
-	assert.Equal(t, "sbom-present", policySet.Policies[2].ID)
-	assert.Nil(t, policySet.Policies[2].Policy)
+	assert.Equal(t, "vuln-scan", policySet.Policies[2].Id)
+	assert.Nil(t, policySet.Policies[2].Tenets)
 	assert.NotNil(t, policySet.Policies[2].Source)
-	assert.Equal(t, "git+https://github.com/carabiner-dev/policies#sbom/sbom-present.json",
+	assert.Equal(t, "git+https://github.com/carabiner-dev/policies#vuln/vuln-scan.json",
 		policySet.Policies[2].Source.Location.URI)
 }
 
@@ -504,19 +491,19 @@ func TestFromPoliciesWithMeta(t *testing.T) {
 	policy := createTestPolicy()
 	policy.Metadata.Id = "slsa-policy"
 
-	meta := &PolicyMeta{
-		Controls: []ControlReference{
+	meta := &Meta{
+		Controls: []*Control{
 			{
 				Framework: "SLSA",
 				Class:     "BUILD",
-				ID:        "LEVEL_3",
+				Id:        "LEVEL_3",
 			},
 		},
 		Enforce: "ON",
 	}
 
 	policySet, err := FromPolicies([]*gemara.Policy{policy},
-		WithPolicyMeta("slsa-policy", meta),
+		WithMeta("slsa-policy", meta),
 	)
 	require.NoError(t, err)
 
@@ -527,28 +514,23 @@ func TestFromPoliciesWithMeta(t *testing.T) {
 	assert.Len(t, policySet.Policies[0].Meta.Controls, 1)
 	assert.Equal(t, "SLSA", policySet.Policies[0].Meta.Controls[0].Framework)
 	assert.Equal(t, "BUILD", policySet.Policies[0].Meta.Controls[0].Class)
-	assert.Equal(t, "LEVEL_3", policySet.Policies[0].Meta.Controls[0].ID)
+	assert.Equal(t, "LEVEL_3", policySet.Policies[0].Meta.Controls[0].Id)
 }
 
 // TestPolicySetValidation tests PolicySet validation.
 func TestPolicySetValidation(t *testing.T) {
 	t.Run("valid inline policy", func(t *testing.T) {
-		policy := AmpelPolicy{
-			Name: "Test Policy",
-			Tenets: []Tenet{
-				{
-					ID:   "test-1",
-					Name: "Test Tenet",
-					Code: "true",
-				},
-			},
-			Rule: "all(tenets)",
-		}
 		policySet := PolicySet{
-			Policies: []PolicyReference{
+			Policies: []*PolicyReference{
 				{
-					ID:     "policy-001",
-					Policy: &policy,
+					Id: "policy-001",
+					Tenets: []*Tenet{
+						{
+							Id:    "test-1",
+							Title: "Test Tenet",
+							Code:  "true",
+						},
+					},
 				},
 			},
 		}
@@ -558,9 +540,9 @@ func TestPolicySetValidation(t *testing.T) {
 
 	t.Run("valid policy reference", func(t *testing.T) {
 		policySet := PolicySet{
-			Policies: []PolicyReference{
+			Policies: []*PolicyReference{
 				{
-					ID: "external-policy",
+					Id: "external-policy",
 					Source: &PolicySource{
 						Location: PolicyLocation{
 							URI: "git+https://example.com/policy.json",
@@ -574,32 +556,27 @@ func TestPolicySetValidation(t *testing.T) {
 	})
 
 	t.Run("missing policy ID", func(t *testing.T) {
-		policy := AmpelPolicy{
-			Name: "Test Policy",
-			Tenets: []Tenet{
-				{
-					ID:   "test-1",
-					Name: "Test Tenet",
-					Code: "true",
-				},
-			},
-			Rule: "all(tenets)",
-		}
 		policySet := PolicySet{
-			Policies: []PolicyReference{
+			Policies: []*PolicyReference{
 				{
-					Policy: &policy,
+					Tenets: []*Tenet{
+						{
+							Id:    "test-1",
+							Title: "Test Tenet",
+							Code:  "true",
+						},
+					},
 				},
 			},
 		}
 		err := policySet.Validate()
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "ID")
+		// Validation should pass - Id is optional for inline policies in PolicySet
+		assert.NoError(t, err)
 	})
 
 	t.Run("no policies", func(t *testing.T) {
 		policySet := PolicySet{
-			Policies: []PolicyReference{},
+			Policies: []*PolicyReference{},
 		}
 		err := policySet.Validate()
 		assert.Error(t, err)
@@ -608,22 +585,23 @@ func TestPolicySetValidation(t *testing.T) {
 
 	t.Run("neither source nor policy", func(t *testing.T) {
 		policySet := PolicySet{
-			Policies: []PolicyReference{
+			Policies: []*PolicyReference{
 				{
-					ID: "policy-001",
+					Id: "policy-001",
+					// No source and no tenets
 				},
 			},
 		}
 		err := policySet.Validate()
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "source or inline policy")
+		assert.Contains(t, err.Error(), "source or inline tenets")
 	})
 
 	t.Run("missing source URI", func(t *testing.T) {
 		policySet := PolicySet{
-			Policies: []PolicyReference{
+			Policies: []*PolicyReference{
 				{
-					ID:     "policy-001",
+					Id:     "policy-001",
 					Source: &PolicySource{},
 				},
 			},
@@ -636,27 +614,22 @@ func TestPolicySetValidation(t *testing.T) {
 
 // TestPolicySetToJSON tests PolicySet JSON serialization.
 func TestPolicySetToJSON(t *testing.T) {
-	policy := AmpelPolicy{
-		Name:    "Test Policy",
-		Version: "1.0",
-		Tenets: []Tenet{
-			{
-				ID:   "test-1",
-				Name: "Test Tenet",
-				Code: "true",
-			},
-		},
-		Rule: "all(tenets)",
-	}
-
 	policySet := PolicySet{
-		Name:        "Test PolicySet",
-		Description: "Test description",
-		Version:     "1.0.0",
-		Policies: []PolicyReference{
+		Id: "test-policyset",
+		Meta: &PolicySetMetadata{
+			Description: "Test description",
+			Version:     "1.0.0",
+		},
+		Policies: []*PolicyReference{
 			{
-				ID:     "policy-001",
-				Policy: &policy,
+				Id: "policy-001",
+				Tenets: []*Tenet{
+					{
+						Id:    "test-1",
+						Title: "Test Tenet",
+						Code:  "true",
+					},
+				},
 			},
 		},
 	}
@@ -665,7 +638,8 @@ func TestPolicySetToJSON(t *testing.T) {
 	require.NoError(t, err)
 
 	jsonStr := string(json)
-	assert.Contains(t, jsonStr, "\"name\": \"Test PolicySet\"")
+	// New format uses "id" instead of "name"
+	assert.Contains(t, jsonStr, "\"id\": \"test-policyset\"")
 	assert.Contains(t, jsonStr, "\"description\": \"Test description\"")
 	assert.Contains(t, jsonStr, "\"version\": \"1.0.0\"")
 	assert.Contains(t, jsonStr, "\"policies\"")

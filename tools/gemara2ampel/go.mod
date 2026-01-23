@@ -3,7 +3,7 @@ module gemara2ampel/go
 go 1.25.5
 
 require (
-	github.com/ossf/gemara v0.18.0
+	github.com/gemaraproj/go-gemara v0.0.0-20260108215115-6f89073164fc
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 )

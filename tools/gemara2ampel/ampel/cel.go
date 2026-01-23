@@ -6,7 +6,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/ossf/gemara"
+	"github.com/gemaraproj/go-gemara"
 )
 
 // DefaultCELTemplates provides CEL code templates for common attestation
@@ -20,13 +20,6 @@ var DefaultCELTemplates = map[string]string{
 	"slsa-provenance-materials": `attestation.predicateType == "https://slsa.dev/provenance/v1" && all(attestation.predicate.materials, m, m.digest.sha256 != "")`,
 
 	"slsa-provenance-buildtype": `attestation.predicateType == "https://slsa.dev/provenance/v1" && attestation.predicate.buildType == "{{.BuildType}}"`,
-
-	// SBOM verification templates
-	"sbom-present": `attestation.predicateType == "https://spdx.dev/Document" || attestation.predicateType == "https://cyclonedx.org/bom"`,
-
-	"sbom-spdx": `attestation.predicateType == "https://spdx.dev/Document"`,
-
-	"sbom-cyclonedx": `attestation.predicateType == "https://cyclonedx.org/bom"`,
 
 	// Vulnerability scan templates
 	"vulnerability-scan-no-critical": `attestation.predicateType == "https://in-toto.io/Statement/v0.1" && attestation.predicate.scanner.result.summary.critical == 0`,
@@ -124,17 +117,6 @@ func selectTemplateFromEvidence(evidenceReq string) string {
 		if strings.Contains(lowerReq, "buildtype") || strings.Contains(lowerReq, "build type") {
 			return "slsa-provenance-buildtype"
 		}
-	}
-
-	// SBOM patterns
-	if strings.Contains(lowerReq, "sbom") || strings.Contains(lowerReq, "software bill of materials") {
-		if strings.Contains(lowerReq, "spdx") {
-			return "sbom-spdx"
-		}
-		if strings.Contains(lowerReq, "cyclonedx") {
-			return "sbom-cyclonedx"
-		}
-		return "sbom-present"
 	}
 
 	// Vulnerability scan patterns

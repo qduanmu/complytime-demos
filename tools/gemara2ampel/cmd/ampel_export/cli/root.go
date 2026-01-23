@@ -1,22 +1,20 @@
 package cli
 
 import (
-	"os"
-
 	"github.com/spf13/cobra"
 )
 
 var (
 	// Flags for policy conversion
-	outputFile        string
-	catalogPath       string
-	scopeFilters      bool
-	policySet         bool
-	policySetName     string
-	policySetDesc     string
-	policySetVersion  string
-	workspacePath     string
-	forceOverwrite    bool
+	outputFile       string
+	catalogPath      string
+	scopeFilters     bool
+	policySet        bool
+	policySetName    string
+	policySetDesc    string
+	policySetVersion string
+	workspacePath    string
+	forceOverwrite   bool
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -47,10 +45,8 @@ in the in-toto format, ensuring supply chain security requirements are met.`,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
-func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		os.Exit(1)
-	}
+func Execute() error {
+	return rootCmd.Execute()
 }
 
 func init() {

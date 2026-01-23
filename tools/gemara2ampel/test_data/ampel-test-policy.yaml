@@ -62,16 +62,6 @@ adherence:
             - "https://github.com/actions/runner"
             - "https://gitlab.com/gitlab-runner"
 
-    - id: "sbom-check"
-      requirement-id: "SC-02.01"
-      frequency: "every build"
-      evaluation-methods:
-        - type: "automated"
-          description: "Verify SBOM is present"
-          executor:
-            type: "Software"
-            name: "ampel"
-      evidence-requirements: "SBOM in SPDX or CycloneDX format"
 
     - id: "vuln-scan-check"
       requirement-id: "SC-03.01"

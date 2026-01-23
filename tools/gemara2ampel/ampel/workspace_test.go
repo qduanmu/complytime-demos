@@ -48,27 +48,27 @@ func TestWorkspace_SaveAndLoadPolicy(t *testing.T) {
 	ws, err := NewWorkspace(t.TempDir())
 	require.NoError(t, err)
 
-	// Create test policy
 	policy := AmpelPolicy{
-		Name:        "Test Policy",
-		Version:     "1.0.0",
-		Description: "Test description",
-		Metadata: map[string]string{
-			"id":     "policy-001",
-			"author": "Test Author",
+		Id: "policy-001",
+		Meta: &Meta{
+			Runtime:     "cel@v14.0",
+			Version:     1,
+			Description: "Test description",
+			AssertMode:  "AND",
 		},
-		Rule: "all(tenets)",
-		Tenets: []Tenet{
+		Tenets: []*Tenet{
 			{
-				ID:          "tenet-1",
-				Name:        "Test Tenet",
-				Description: "Test tenet description",
-				Code:        "attestation.verified == true",
-				Parameters: map[string]interface{}{
-					"threshold": 95,
-					"enabled":   true,
+				Id:      "tenet-1",
+				Title:   "Test Tenet",
+				Runtime: "cel@v14.0",
+				Code:    "attestation.verified == true",
+				Predicates: &PredicateSpec{
+					Types: []string{"https://example.com/attestation/v1"},
 				},
-				AttestationTypes: []string{"https://example.com/attestation/v1"},
+				Outputs: map[string]*Output{
+					"threshold": {Code: "context.threshold", Value: 95},
+					"enabled":   {Code: "context.enabled", Value: true},
+				},
 			},
 		},
 	}
@@ -87,20 +87,20 @@ func TestWorkspace_SaveAndLoadPolicy(t *testing.T) {
 	require.NotNil(t, loadedPolicy)
 
 	// Verify all fields match
-	assert.Equal(t, policy.Name, loadedPolicy.Name)
-	assert.Equal(t, policy.Version, loadedPolicy.Version)
-	assert.Equal(t, policy.Description, loadedPolicy.Description)
-	assert.Equal(t, policy.Rule, loadedPolicy.Rule)
-	assert.Equal(t, policy.Metadata, loadedPolicy.Metadata)
+	assert.Equal(t, policy.Id, loadedPolicy.Id)
+	assert.Equal(t, policy.Meta.Version, loadedPolicy.Meta.Version)
+	assert.Equal(t, policy.Meta.Description, loadedPolicy.Meta.Description)
+	assert.Equal(t, policy.Meta.AssertMode, loadedPolicy.Meta.AssertMode)
 	assert.Equal(t, len(policy.Tenets), len(loadedPolicy.Tenets))
 
 	// Verify tenet fields
-	assert.Equal(t, policy.Tenets[0].ID, loadedPolicy.Tenets[0].ID)
-	assert.Equal(t, policy.Tenets[0].Name, loadedPolicy.Tenets[0].Name)
+	assert.Equal(t, policy.Tenets[0].Id, loadedPolicy.Tenets[0].Id)
+	assert.Equal(t, policy.Tenets[0].Title, loadedPolicy.Tenets[0].Title)
 	assert.Equal(t, policy.Tenets[0].Code, loadedPolicy.Tenets[0].Code)
-	// Note: JSON unmarshaling converts numbers to float64, so we check parameters separately
-	assert.Equal(t, float64(95), loadedPolicy.Tenets[0].Parameters["threshold"])
-	assert.Equal(t, true, loadedPolicy.Tenets[0].Parameters["enabled"])
+
+	// Verify outputs - JSON unmarshaling converts numbers to float64
+	assert.Equal(t, float64(95), loadedPolicy.Tenets[0].Outputs["threshold"].Value)
+	assert.Equal(t, true, loadedPolicy.Tenets[0].Outputs["enabled"].Value)
 }
 
 // TestWorkspace_LoadPolicy_NotFound verifies error when policy doesn't exist.
@@ -142,11 +142,18 @@ func TestWorkspace_PolicyExists(t *testing.T) {
 	// Should not exist initially
 	assert.False(t, ws.PolicyExists(policyID))
 
-	// Create policy
 	policy := AmpelPolicy{
-		Name:   "Test",
-		Rule:   "all(tenets)",
-		Tenets: []Tenet{{ID: "t1", Name: "T1", Code: "true"}},
+		Id: "test-policy",
+		Meta: &Meta{
+			AssertMode: "AND",
+		},
+		Tenets: []*Tenet{
+			{
+				Id:    "t1",
+				Title: "T1",
+				Code:  "true",
+			},
+		},
 	}
 	err = ws.SavePolicy(policyID, policy)
 	require.NoError(t, err)
@@ -247,11 +254,18 @@ func TestWorkspace_FilePermissions(t *testing.T) {
 	ws, err := NewWorkspace(t.TempDir())
 	require.NoError(t, err)
 
-	// Create and save policy
 	policy := AmpelPolicy{
-		Name:   "Test",
-		Rule:   "all(tenets)",
-		Tenets: []Tenet{{ID: "t1", Name: "T1", Code: "true"}},
+		Id: "test-policy",
+		Meta: &Meta{
+			AssertMode: "AND",
+		},
+		Tenets: []*Tenet{
+			{
+				Id:    "t1",
+				Title: "T1",
+				Code:  "true",
+			},
+		},
 	}
 	policyID := "test-policy"
 	err = ws.SavePolicy(policyID, policy)
@@ -267,27 +281,50 @@ func TestWorkspace_FilePermissions(t *testing.T) {
 	assert.Equal(t, os.FileMode(0600), mode.Perm())
 }
 
-// TestWorkspace_MultiplePolices verifies managing multiple policies.
+// TestWorkspace_MultiplePolicies verifies managing multiple policies.
 func TestWorkspace_MultiplePolicies(t *testing.T) {
 	ws, err := NewWorkspace(t.TempDir())
 	require.NoError(t, err)
 
-	// Create and save multiple policies
 	policies := map[string]AmpelPolicy{
 		"policy-001": {
-			Name:   "Policy 001",
-			Rule:   "all(tenets)",
-			Tenets: []Tenet{{ID: "t1", Name: "T1", Code: "true"}},
+			Id: "policy-001",
+			Meta: &Meta{
+				AssertMode: "AND",
+			},
+			Tenets: []*Tenet{
+				{
+					Id:    "t1",
+					Title: "T1",
+					Code:  "true",
+				},
+			},
 		},
 		"policy-002": {
-			Name:   "Policy 002",
-			Rule:   "any(tenets)",
-			Tenets: []Tenet{{ID: "t2", Name: "T2", Code: "false"}},
+			Id: "policy-002",
+			Meta: &Meta{
+				AssertMode: "OR",
+			},
+			Tenets: []*Tenet{
+				{
+					Id:    "t2",
+					Title: "T2",
+					Code:  "false",
+				},
+			},
 		},
 		"policy-003": {
-			Name:   "Policy 003",
-			Rule:   "all(tenets)",
-			Tenets: []Tenet{{ID: "t3", Name: "T3", Code: "true"}},
+			Id: "policy-003",
+			Meta: &Meta{
+				AssertMode: "AND",
+			},
+			Tenets: []*Tenet{
+				{
+					Id:    "t3",
+					Title: "T3",
+					Code:  "true",
+				},
+			},
 		},
 	}
 
@@ -306,7 +343,7 @@ func TestWorkspace_MultiplePolicies(t *testing.T) {
 	for id, originalPolicy := range policies {
 		loadedPolicy, err := ws.LoadPolicy(id)
 		require.NoError(t, err)
-		assert.Equal(t, originalPolicy.Name, loadedPolicy.Name)
-		assert.Equal(t, originalPolicy.Rule, loadedPolicy.Rule)
+		assert.Equal(t, originalPolicy.Id, loadedPolicy.Id)
+		assert.Equal(t, originalPolicy.Meta.AssertMode, loadedPolicy.Meta.AssertMode)
 	}
 }

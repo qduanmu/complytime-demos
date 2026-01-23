@@ -3,7 +3,7 @@ package ampel
 import (
 	"strings"
 
-	"github.com/ossf/gemara"
+	"github.com/gemaraproj/go-gemara"
 )
 
 // AttestationTypeInference analyzes a policy to determine which attestation
@@ -11,9 +11,6 @@ import (
 type AttestationTypeInference struct {
 	// RequiresProvenance indicates SLSA provenance attestations are needed
 	RequiresProvenance bool
-
-	// RequiresSBOM indicates SBOM attestations are needed
-	RequiresSBOM bool
 
 	// RequiresVulnScan indicates vulnerability scan attestations are needed
 	RequiresVulnScan bool
@@ -28,10 +25,6 @@ func (inf *AttestationTypeInference) AllTypes() []string {
 
 	if inf.RequiresProvenance {
 		types = append(types, "https://slsa.dev/provenance/v1")
-	}
-	if inf.RequiresSBOM {
-		// Include both SPDX and CycloneDX
-		types = append(types, "https://spdx.dev/Document", "https://cyclonedx.org/bom")
 	}
 	if inf.RequiresVulnScan {
 		types = append(types, "https://in-toto.io/Statement/v0.1")
@@ -75,18 +68,6 @@ func InferAttestationType(evidenceReq string) string {
 		}
 	}
 
-	// Check for SBOM keywords
-	if strings.Contains(lowerReq, "spdx") {
-		return "https://spdx.dev/Document"
-	}
-	if strings.Contains(lowerReq, "cyclonedx") {
-		return "https://cyclonedx.org/bom"
-	}
-	if strings.Contains(lowerReq, "sbom") || strings.Contains(lowerReq, "software bill of materials") {
-		// Default to SPDX if SBOM type not specified
-		return "https://spdx.dev/Document"
-	}
-
 	// Check for vulnerability scan keywords
 	for _, keyword := range []string{"vulnerabilit", "cve", "security scan", "vuln scan"} {
 		if strings.Contains(lowerReq, keyword) {
@@ -111,14 +92,6 @@ func analyzeEvidenceRequirement(evidenceReq string, inf *AttestationTypeInferenc
 	for _, keyword := range []string{"slsa", "provenance", "builder", "build provenance", "build attestation"} {
 		if strings.Contains(lowerReq, keyword) {
 			inf.RequiresProvenance = true
-			break
-		}
-	}
-
-	// Check for SBOM
-	for _, keyword := range []string{"sbom", "software bill of materials", "spdx", "cyclonedx", "dependency"} {
-		if strings.Contains(lowerReq, keyword) {
-			inf.RequiresSBOM = true
 			break
 		}
 	}
@@ -150,8 +123,6 @@ func analyzeEvidenceRequirement(evidenceReq string, inf *AttestationTypeInferenc
 func isStandardAttestationType(url string) bool {
 	standardTypes := []string{
 		"https://slsa.dev/provenance/v1",
-		"https://spdx.dev/Document",
-		"https://cyclonedx.org/bom",
 		"https://in-toto.io/Statement/v0.1",
 		"https://in-toto.io/Statement/v1",
 	}
@@ -162,21 +133,4 @@ func isStandardAttestationType(url string) bool {
 		}
 	}
 	return false
-}
-
-// EvidenceKeywordMapping maps common evidence requirement keywords to
-// attestation predicate type URLs.
-var EvidenceKeywordMapping = map[string]string{
-	"slsa":                       "https://slsa.dev/provenance/v1",
-	"provenance":                 "https://slsa.dev/provenance/v1",
-	"build provenance":           "https://slsa.dev/provenance/v1",
-	"sbom":                       "https://spdx.dev/Document",
-	"software bill of materials": "https://spdx.dev/Document",
-	"spdx":                       "https://spdx.dev/Document",
-	"cyclonedx":                  "https://cyclonedx.org/bom",
-	"vulnerability":              "https://in-toto.io/Statement/v0.1",
-	"vulnerability scan":         "https://in-toto.io/Statement/v0.1",
-	"cve":                        "https://in-toto.io/Statement/v0.1",
-	"security scan":              "https://in-toto.io/Statement/v0.1",
-	"in-toto":                    "https://in-toto.io/Statement/v0.1",
 }

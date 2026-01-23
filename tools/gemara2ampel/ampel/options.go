@@ -1,6 +1,6 @@
 package ampel
 
-import "github.com/ossf/gemara"
+import "github.com/gemaraproj/go-gemara"
 
 // TransformOptions configures the transformation from Gemara Layer-3 policies
 // to Ampel verification policies.
@@ -58,8 +58,6 @@ func WithCELTemplates(templates map[string]string) TransformOption {
 //
 // Common attestation types:
 //   - "https://slsa.dev/provenance/v1" - SLSA provenance
-//   - "https://spdx.dev/Document" - SPDX SBOM
-//   - "https://cyclonedx.org/bom" - CycloneDX SBOM
 //   - "https://in-toto.io/Statement/v0.1" - Generic in-toto statement
 func WithAttestationTypes(types []string) TransformOption {
 	return func(opts *TransformOptions) {
@@ -119,11 +117,11 @@ type PolicySetOptions struct {
 	// Version specifies the policy set version
 	Version string
 
-	// Metadata contains additional policy set metadata
-	Metadata map[string]string
+	// Metadata contains additional policy set custom metadata
+	Metadata map[string]interface{}
 
-	// PolicyMetadata maps policy IDs to their metadata (controls, enforcement, etc.)
-	PolicyMetadata map[string]*PolicyMeta
+	// Meta maps policy IDs to their metadata (controls, enforcement, etc.)
+	Meta map[string]*Meta
 
 	// TransformOptions are passed to FromPolicy for each policy transformation
 	TransformOptions []TransformOption
@@ -151,15 +149,15 @@ func WithPolicySetMetadata(name, description, version string) PolicySetOption {
 //
 // Example:
 //
-//	metadata := map[string]string{
+//	metadata := map[string]interface{}{
 //	    "author": "Security Team",
 //	    "organization": "ACME Corp",
 //	}
 //	ampel.FromPolicies(policies, ampel.WithPolicySetCustomMetadata(metadata))
-func WithPolicySetCustomMetadata(metadata map[string]string) PolicySetOption {
+func WithPolicySetCustomMetadata(metadata map[string]interface{}) PolicySetOption {
 	return func(opts *PolicySetOptions) {
 		if opts.Metadata == nil {
-			opts.Metadata = make(map[string]string)
+			opts.Metadata = make(map[string]interface{})
 		}
 		for k, v := range metadata {
 			opts.Metadata[k] = v
@@ -167,25 +165,25 @@ func WithPolicySetCustomMetadata(metadata map[string]string) PolicySetOption {
 	}
 }
 
-// WithPolicyMeta sets metadata for a specific policy in the policy set.
+// WithMeta sets metadata for a specific policy in the policy set.
 // This allows you to specify controls, enforcement mode, and other metadata
 // for individual policies.
 //
 // Example:
 //
-//	meta := &ampel.PolicyMeta{
+//	meta := &ampel.Meta{
 //	    Controls: []ampel.ControlReference{
 //	        {Framework: "SLSA", Class: "BUILD", ID: "LEVEL_3"},
 //	    },
 //	    Enforce: "ON",
 //	}
-//	ampel.FromPolicies(policies, ampel.WithPolicyMeta("policy-001", meta))
-func WithPolicyMeta(policyID string, meta *PolicyMeta) PolicySetOption {
+//	ampel.FromPolicies(policies, ampel.WithMeta("policy-001", meta))
+func WithMeta(policyID string, meta *Meta) PolicySetOption {
 	return func(opts *PolicySetOptions) {
-		if opts.PolicyMetadata == nil {
-			opts.PolicyMetadata = make(map[string]*PolicyMeta)
+		if opts.Meta == nil {
+			opts.Meta = make(map[string]*Meta)
 		}
-		opts.PolicyMetadata[policyID] = meta
+		opts.Meta[policyID] = meta
 	}
 }
 

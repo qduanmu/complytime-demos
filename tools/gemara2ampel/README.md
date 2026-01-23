@@ -10,6 +10,8 @@ The `gemara2ampel` tools convert Gemara Layer 3 policies (organizational governa
 
 [Ampel](https://github.com/carabiner-dev/ampel) is "The Amazing Multipurpose Policy Engine (and L)" - a lightweight supply chain policy engine designed to verify unforgeable metadata captured in signed attestations throughout the software development lifecycle.
 
+**Output Format:** This tool generates policies that conform to the official [Ampel Policy API v1](https://github.com/carabiner-dev/policy/tree/main/api/v1) format, using CEL (Common Expression Language) for verification logic.
+
 ## Go Implementation
 
 A compiled Go implementation with full support for Gemara Layer 3 schema.
@@ -84,23 +86,51 @@ bin/ampel_export test_data/ampel-test-policy.yaml -policyset -scope-filters -out
 ```
 
 ### Features
-- **Full Gemara Layer 3 schema support** via `github.com/ossf/gemara`
+- **Full Gemara Layer 3 schema support** via `github.com/gemaraproj/go-gemara`
+- **Official Ampel API compliance** - Matches the official Ampel Policy API format from `github.com/carabiner-dev/policy/api/v1`
+  - Uses snake_case field names (e.g., `assert_mode`)
+  - CEL runtime version `cel@v14.0`
+  - Structured Output objects with CEL code expressions
+  - PredicateSpec for attestation type filtering
 - **Workspace mode** - Preserves manual CEL edits on policy regeneration
-- **Smart parameter handling** - Single values as strings, multiple values as arrays
+- **Smart parameter handling** - Parameters mapped to Output objects with CEL code
 - **Catalog enrichment** to populate tenet descriptions
 - **Scope-based CEL filter generation**
-- **PolicySet generation** with import handling
+- **PolicySet generation** with import handling (inline and external references)
 - **Template-based CEL code generation** with PascalCase parameter support
-- **Automatic attestation type inference**
+- **Automatic attestation type inference** from evidence requirements
 - **Cobra CLI** with short flags, help, and version support
 
 ### Dependencies
 The Go version uses the following dependencies:
-- `github.com/ossf/gemara v0.18.0` - Gemara schema definitions
+- `github.com/gemaraproj/go-gemara` (latest from main branch) - Gemara schema definitions
 - `github.com/spf13/cobra v1.10.2` - CLI framework
 - `github.com/goccy/go-yaml v1.19.1` - YAML parsing
 
-## Field Mappings
+## Transformation Overview
+
+### What Gets Mapped
+
+The transformation focuses on converting **verification-relevant** policy elements:
+
+**Included:**
+- Policy ID and description
+- Assessment plans → Tenets with CEL expressions
+- Evaluation methods (automated, gate, behavioral, autoremediation)
+- Evidence requirements → Attestation type specifications
+- Parameters → Output objects with CEL code
+- Scope dimensions → CEL filters (when `--scope-filters` enabled)
+
+**Not Included:**
+- Author and contact information (RACI model)
+- Implementation timelines and rollout schedules
+- Risk assessments and mitigation strategies
+- Enforcement methods and remediation workflows
+- Organizational metadata
+
+These organizational fields contain valuable governance context but are not part of the technical verification policy structure defined by the official Ampel format.
+
+### Field Mappings
 
 For detailed field mapping documentation, see:
 - **[Field Mapping Documentation](docs/FIELD_MAPPING.md)** - Comprehensive mapping reference for all Gemara Layer-3 to Ampel policy transformations
@@ -109,56 +139,88 @@ For detailed field mapping documentation, see:
 
 ### Single Policy Output (Default)
 
+The output follows the official [Ampel Policy API format](https://github.com/carabiner-dev/policy/tree/main/api/v1):
+
 ```json
 {
-  "name": "Supply Chain Security Policy",
-  "description": "Verify software supply chain security",
-  "version": "1.0.0",
-  "metadata": {
-    "policy-id": "policy-001",
-    "author": "Security Team",
-    "author-id": "security-team",
-    "responsible": "DevOps Manager",
-    "accountable": "CISO",
-    "scope-technologies": "Container Images",
-    "scope-regions": "United States",
-    "catalog-references": "SLSA-CONTROLS"
+  "id": "policy-001",
+  "meta": {
+    "runtime": "cel@v14.0",
+    "description": "Verify software supply chain security",
+    "assert_mode": "AND",
+    "version": 1
   },
-  "imports": [],
   "tenets": [
     {
       "id": "SC-01.01-slsa-prov-check-0",
-      "name": "Verify SLSA provenance",
-      "description": "SLSA provenance with trusted builder",
+      "title": "Verify SLSA provenance",
+      "runtime": "cel@v14.0",
+      "predicates": {
+        "types": [
+          "https://slsa.dev/provenance/v1"
+        ]
+      },
       "code": "attestation.predicateType == \"https://slsa.dev/provenance/v1\" && attestation.predicate.builder.id == \"https://github.com/actions/runner\"",
-      "attestationTypes": [
-        "https://slsa.dev/provenance/v1"
-      ],
-      "parameters": {
-        "builder-id": "https://github.com/actions/runner"
+      "outputs": {
+        "builder-id": {
+          "code": "context.builder-id"
+        }
       }
     }
-  ],
-  "rule": "all(tenets)"
+  ]
 }
 ```
 
-### PolicySet Output (with `-policyset` flag)
+**Key Structure Notes:**
+- **`id`**: Policy identifier (from Gemara `policy.Metadata.Id`)
+- **`meta`**: Contains policy metadata
+  - **`runtime`**: CEL runtime version (default: "cel@v14.0")
+  - **`description`**: Policy description
+  - **`assert_mode`**: Either "AND" (all tenets must pass) or "OR" (any tenet can pass) - note snake_case
+  - **`version`**: Integer version (parsed from Gemara version string, e.g., "1.0.0" → 1)
+  - **`enforce`**: Optional enforcement mode ("ON", "OFF", "WARN")
+- **`tenets`**: Array of verification tenets
+  - **`id`**: Unique tenet identifier
+  - **`title`**: Human-readable tenet name
+  - **`runtime`**: Runtime identifier (inherits from policy if not set)
+  - **`predicates`**: Specifies which attestation types this tenet evaluates
+  - **`code`**: CEL expression for verification
+  - **`outputs`**: Map of Output objects with CEL code to extract values
+
+### PolicySet Output (with `--policyset` flag)
 
 ```json
 {
-  "name": "Supply Chain Security Policy",
-  "description": "Verify software supply chain security",
-  "version": "1.0.0",
-  "metadata": { ... },
+  "id": "supply-chain-security-policyset",
+  "meta": {
+    "description": "Verify software supply chain security",
+    "version": "1.0.0"
+  },
   "policies": [
     {
       "id": "policy-001",
-      "policy": {
-        "name": "Supply Chain Security Policy",
-        "tenets": [ ... ],
-        "rule": "all(tenets)"
-      }
+      "meta": {
+        "runtime": "cel@v14.0",
+        "description": "Main supply chain policy",
+        "assert_mode": "AND",
+        "version": 1
+      },
+      "tenets": [
+        {
+          "id": "SC-01.01-slsa-prov-check-0",
+          "title": "Verify SLSA provenance",
+          "runtime": "cel@v14.0",
+          "predicates": {
+            "types": ["https://slsa.dev/provenance/v1"]
+          },
+          "code": "attestation.predicateType == \"https://slsa.dev/provenance/v1\"",
+          "outputs": {
+            "builder-id": {
+              "code": "context.builder-id"
+            }
+          }
+        }
+      ]
     },
     {
       "id": "imported-policy-id",
@@ -172,9 +234,15 @@ For detailed field mapping documentation, see:
 }
 ```
 
+**PolicySet Structure:**
+- **Inline policies**: Include full `tenets` array with CEL code
+- **External references**: Use `source.location.uri` to reference external policies
+- Policies without tenets are treated as external references
+- Each policy in the set follows the same structure as single policy output
+
 ## CEL Code Generation
 
-### Implementation(Automated)
+### Implementation (Automated)
 
 The Go implementation automatically generates CEL code based on evidence requirements and parameters:
 
@@ -182,7 +250,6 @@ The Go implementation automatically generates CEL code based on evidence require
 - **SLSA Provenance Builder**: Checks builder identity
 - **SLSA Provenance Materials**: Validates material digests
 - **SLSA Build Type**: Verifies build type
-- **SBOM Presence**: Checks for SPDX or CycloneDX SBOMs
 - **Vulnerability Scanning**: Validates scan results and thresholds
 
 **Example Generated CEL:**
@@ -190,6 +257,17 @@ The Go implementation automatically generates CEL code based on evidence require
 attestation.predicateType == "https://slsa.dev/provenance/v1" &&
 attestation.predicate.builder.id == "https://github.com/actions/runner"
 ```
+
+**Parameter Mapping:**
+Parameters from Gemara assessment plans are mapped to Output objects that reference context values:
+```json
+"outputs": {
+  "builder-id": {
+    "code": "context.builder-id"
+  }
+}
+```
+The `code` field contains a CEL expression that accesses the parameter value from the runtime context.
 
 
 ## Testing
@@ -217,7 +295,6 @@ ampel verify \
 
 For comprehensive documentation, see:
 - **[Field Mapping Documentation](docs/FIELD_MAPPING.md)** - Complete mapping reference
-- **[Workspace Mode](docs/WORKSPACE_MODE.md)** - Preserve manual CEL edits on regeneration
 
 ### CEL Resources
 
@@ -231,17 +308,15 @@ The generated policies use CEL (Common Expression Language) for evaluation:
 Reference for common attestation predicate types:
 - **SLSA Provenance v1**: `https://slsa.dev/provenance/v1`
 - **In-Toto Statement v1**: `https://in-toto.io/Statement/v1`
-- **SPDX SBOM**: `https://spdx.dev/Document`
-- **CycloneDX SBOM**: `https://cyclonedx.org/bom`
 - **OpenVEX**: `https://openvex.dev/ns/v0.2.0`
 
 ## For More Information
 
 About Gemara:
 - [Gemara Documentation](https://gemara.openssf.org/)
-- [Gemara GitHub](https://github.com/ossf/gemara/)
-- [Gemara Layer 3 Schema](https://github.com/ossf/gemara/blob/main/schemas/layer-3.cue)
+- [Gemara Go Library](https://github.com/gemaraproj/go-gemara)
 
 About Ampel:
 - [Ampel Policy Engine](https://github.com/carabiner-dev/ampel)
+- [Ampel Policy API v1](https://github.com/carabiner-dev/policy/tree/main/api/v1) - Official policy format specification
 - [Ampel Policies Repository](https://github.com/carabiner-dev/policies)
