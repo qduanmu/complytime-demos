@@ -79,25 +79,25 @@ bin/ampel_export --version
 make build
 
 # Basic conversion
-bin/ampel_export test_data/ampel-test-policy.yaml -output my-policy.json
+bin/ampel_export test_data/gemara-policy-with-params.yaml -output my-policy.json
 
 # Generate PolicySet with scope filters
-bin/ampel_export test_data/ampel-test-policy.yaml -policyset -scope-filters -output policyset.json
+bin/ampel_export test_data/gemara-policy-with-params.yaml -policyset -scope-filters -output policyset.json
 ```
 
 ### Features
 - **Full Gemara Layer 3 schema support** via `github.com/gemaraproj/go-gemara`
-- **Official Ampel API compliance** - Matches the official Ampel Policy API format from `github.com/carabiner-dev/policy/api/v1`
+- **Official Ampel API compliance** - Uses official Ampel Policy API types from `github.com/carabiner-dev/policy/api/v1`
+  - Direct type aliases to official v1 types (Policy, PolicySet, Tenet, etc.)
   - Uses snake_case field names (e.g., `assert_mode`)
   - CEL runtime version `cel@v14.0`
-  - Structured Output objects with CEL code expressions
   - PredicateSpec for attestation type filtering
 - **Workspace mode** - Preserves manual CEL edits on policy regeneration
-- **Smart parameter handling** - Parameters mapped to Output objects with CEL code
-- **Catalog enrichment** to populate tenet descriptions
+- **Smart parameter handling** - Parameters mapped to Policy.Context with runtime value support
+- **Catalog enrichment** - Enriches tenet titles from catalog requirement text and adds control metadata
 - **Scope-based CEL filter generation**
 - **PolicySet generation** with import handling (inline and external references)
-- **Template-based CEL code generation** with PascalCase parameter support
+- **Template-based CEL code generation**
 - **Automatic attestation type inference** from evidence requirements
 - **Cobra CLI** with short flags, help, and version support
 
@@ -118,7 +118,7 @@ The transformation focuses on converting **verification-relevant** policy elemen
 - Assessment plans → Tenets with CEL expressions
 - Evaluation methods (automated, gate, behavioral, autoremediation)
 - Evidence requirements → Attestation type specifications
-- Parameters → Output objects with CEL code
+- Parameters → Policy.Context with runtime values and defaults
 - Scope dimensions → CEL filters (when `--scope-filters` enabled)
 
 **Not Included:**
@@ -150,6 +150,15 @@ The output follows the official [Ampel Policy API format](https://github.com/car
     "assert_mode": "AND",
     "version": 1
   },
+  "context": {
+    "builder-id": {
+      "type": "string",
+      "required": false,
+      "value": "https://github.com/actions/runner",
+      "default": "https://github.com/actions/runner",
+      "description": "Expected SLSA builder ID"
+    }
+  },
   "tenets": [
     {
       "id": "SC-01.01-slsa-prov-check-0",
@@ -160,32 +169,19 @@ The output follows the official [Ampel Policy API format](https://github.com/car
           "https://slsa.dev/provenance/v1"
         ]
       },
-      "code": "attestation.predicateType == \"https://slsa.dev/provenance/v1\" && attestation.predicate.builder.id == \"https://github.com/actions/runner\"",
-      "outputs": {
-        "builder-id": {
-          "code": "context.builder-id"
-        }
-      }
+      "code": "attestation.predicateType == \"https://slsa.dev/provenance/v1\" && attestation.predicate.builder.id == context[\"builder-id\"]"
     }
   ]
 }
 ```
 
-**Key Structure Notes:**
-- **`id`**: Policy identifier (from Gemara `policy.Metadata.Id`)
-- **`meta`**: Contains policy metadata
-  - **`runtime`**: CEL runtime version (default: "cel@v14.0")
-  - **`description`**: Policy description
-  - **`assert_mode`**: Either "AND" (all tenets must pass) or "OR" (any tenet can pass) - note snake_case
-  - **`version`**: Integer version (parsed from Gemara version string, e.g., "1.0.0" → 1)
-  - **`enforce`**: Optional enforcement mode ("ON", "OFF", "WARN")
-- **`tenets`**: Array of verification tenets
-  - **`id`**: Unique tenet identifier
-  - **`title`**: Human-readable tenet name
-  - **`runtime`**: Runtime identifier (inherits from policy if not set)
-  - **`predicates`**: Specifies which attestation types this tenet evaluates
-  - **`code`**: CEL expression for verification
-  - **`outputs`**: Map of Output objects with CEL code to extract values
+**Key Structure:**
+- **`id`**: Policy identifier
+- **`meta`**: Policy metadata (runtime, description, assert_mode, version)
+- **`context`**: Runtime parameters from Gemara assessment plan parameters
+- **`tenets`**: Array of verification checks with CEL expressions
+
+For detailed field descriptions, see [Field Mapping Documentation](docs/FIELD_MAPPING.md).
 
 ### PolicySet Output (with `--policyset` flag)
 
@@ -194,7 +190,7 @@ The output follows the official [Ampel Policy API format](https://github.com/car
   "id": "supply-chain-security-policyset",
   "meta": {
     "description": "Verify software supply chain security",
-    "version": "1.0.0"
+    "version": 1
   },
   "policies": [
     {
@@ -205,6 +201,15 @@ The output follows the official [Ampel Policy API format](https://github.com/car
         "assert_mode": "AND",
         "version": 1
       },
+      "context": {
+        "builder-id": {
+          "type": "string",
+          "required": false,
+          "value": "https://github.com/actions/runner",
+          "default": "https://github.com/actions/runner",
+          "description": "Expected SLSA builder ID"
+        }
+      },
       "tenets": [
         {
           "id": "SC-01.01-slsa-prov-check-0",
@@ -213,18 +218,14 @@ The output follows the official [Ampel Policy API format](https://github.com/car
           "predicates": {
             "types": ["https://slsa.dev/provenance/v1"]
           },
-          "code": "attestation.predicateType == \"https://slsa.dev/provenance/v1\"",
-          "outputs": {
-            "builder-id": {
-              "code": "context.builder-id"
-            }
-          }
+          "code": "attestation.predicateType == \"https://slsa.dev/provenance/v1\" && attestation.predicate.builder.id == context[\"builder-id\"]"
         }
       ]
     },
     {
       "id": "imported-policy-id",
       "source": {
+        "id": "imported-policy-id",
         "location": {
           "uri": "git+https://github.com/org/repo#path/to/policy.json"
         }
@@ -236,9 +237,10 @@ The output follows the official [Ampel Policy API format](https://github.com/car
 
 **PolicySet Structure:**
 - **Inline policies**: Include full `tenets` array with CEL code
-- **External references**: Use `source.location.uri` to reference external policies
+- **External references**: Use `source` field with `PolicyRef` containing `id` and `location.uri`
 - Policies without tenets are treated as external references
 - Each policy in the set follows the same structure as single policy output
+- **Note:** `meta.version` is an integer (int64), parsed from version strings (e.g., "1.0.0" → 1)
 
 ## CEL Code Generation
 
@@ -259,15 +261,10 @@ attestation.predicate.builder.id == "https://github.com/actions/runner"
 ```
 
 **Parameter Mapping:**
-Parameters from Gemara assessment plans are mapped to Output objects that reference context values:
-```json
-"outputs": {
-  "builder-id": {
-    "code": "context.builder-id"
-  }
-}
-```
-The `code` field contains a CEL expression that accesses the parameter value from the runtime context.
+Parameters from Gemara assessment plans are mapped to Policy.Context as ContextVal entries. CEL expressions reference these values using `context["param-id"]` syntax.
+
+For detailed parameter mapping documentation, including handling of multi-value parameters, runtime-only parameters, and CEL integration, see:
+- **[Parameter to Context Mapping](docs/FIELD_MAPPING.md#parameter-to-context-mapping)** - Complete parameter transformation reference
 
 
 ## Testing
@@ -276,7 +273,7 @@ Test data is available in the `test_data/` directory:
 
 ```bash
 # Test Go implementation
-bin/ampel_export test_data/ampel-test-policy.yaml -output /tmp/test-output.json
+bin/ampel_export test_data/gemara-policy-with-params.yaml -output /tmp/test-output.json
 ```
 
 ## Using Generated Policies
@@ -291,12 +288,7 @@ ampel verify \
   --attestation-bundle attestations.jsonl
 ```
 
-## Documentation
-
-For comprehensive documentation, see:
-- **[Field Mapping Documentation](docs/FIELD_MAPPING.md)** - Complete mapping reference
-
-### CEL Resources
+## CEL Resources
 
 The generated policies use CEL (Common Expression Language) for evaluation:
 - [CEL Language Definition](https://cel.dev/)

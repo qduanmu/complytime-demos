@@ -26,19 +26,20 @@ The output follows the [official Ampel Policy API format](https://github.com/car
 | N/A | `meta.assert_mode` | Default: `"AND"` | "AND" (all tenets) or "OR" (any tenet) |
 | N/A | `meta.enforce` | Default: `"ON"` | "ON", "OFF", or "WARN" |
 | `adherence.assessment-plans[]` | `tenets[]` | Transform (see below) | One-to-many mapping |
-| N/A | `context{}` | Not currently mapped | Contextual data definitions (for future use) |
+| `adherence.assessment-plans[].parameters[]` | `context{}` | Transform (see below) | Parameters → ContextVal entries |
 | N/A | `identities[]` | Not currently mapped | Valid signer identities (for future use) |
 | N/A | `predicates` | Not currently mapped | Policy-level predicate specification (for future use) |
 
 ### Additional Policy Fields
 
-The official Ampel policy format includes additional top-level fields that are not currently populated from Gemara but are available for future use:
+The official Ampel policy format includes additional top-level fields:
 
-**Context:** `map[string]*ContextVal`
-- Defines contextual data values available to all tenets
-- Each ContextVal specifies type, required flag, default value, and description
-- Example: `{"builder-id": {"type": "string", "required": true, "description": "Expected builder identity"}}`
+**Context:** `map[string]*ContextVal` ✅ **Populated from Gemara parameters**
+- Maps Gemara assessment plan parameters to runtime context values
+- Each parameter becomes a ContextVal with type, required flag, default value, and description
+- Example: `{"builder-id": {"type": "string", "required": false, "value": "...", "default": "...", "description": "Expected builder identity"}}`
 - ContextVal fields: `type`, `required`, `default`, `value`, `description`
+- See "Parameter to Context Mapping" section below for details
 
 **Identities:** `[]*Identity`
 - Defines valid signer identities for attestations
@@ -60,22 +61,31 @@ When transforming multiple policies or policies with imports, an Ampel **PolicyS
 | ------------- | --------------- | -------------- | ----- |
 | Custom or policy metadata | `id` | Configurable or from main policy | PolicySet identifier |
 | Custom or policy metadata | `meta.description` | Configurable or from main policy | PolicySet description |
-| Custom or policy metadata | `meta.version` | Configurable or from main policy | PolicySet version (string) |
-| Policy(ies) + imports | `policies[]` | Array of PolicyReference | Contains inline and/or external policies |
+| Custom or policy metadata | `meta.version` | Parse to int64 | PolicySet version as integer (e.g., "1.0.0" → 1) |
+| Policy(ies) + imports | `policies[]` | Array of Policy | Contains inline and/or external policies |
 
-### PolicyReference Structure
+### Policy Structure in PolicySet
 
-| PolicyReference Field | Type | Description |
-| --------------------- | ---- | ----------- |
+| Policy Field | Type | Description |
+| ------------ | ---- | ----------- |
 | `id` | string | Policy identifier within the set |
 | `tenets[]` | Tenet[] (optional) | Inline policy tenets (if inline policy) |
 | `meta` | Meta (optional) | Policy metadata (if inline policy) |
 | `context` | map[string]*ContextVal (optional) | Contextual data (if inline policy) |
-| `source.location.uri` | string (optional) | External policy URI (e.g., `git+https://github.com/org/repo#path/to/policy.json`) |
+| `source` | PolicyRef (optional) | External policy reference with id and location |
+| `source.id` | string | Policy identifier for external reference |
+| `source.location.uri` | string | External policy URI (e.g., `git+https://github.com/org/repo#path/to/policy.json`) |
 
 **When to use inline vs. external:**
 - **Inline policy**: Includes `tenets` array with full tenet definitions
-- **External reference**: Includes `source.location.uri` pointing to external policy
+- **External reference**: Includes `source` field with `PolicyRef` containing `id` and `location`
+
+**PolicySetMeta Fields:**
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `description` | string | PolicySet description |
+| `version` | int64 | PolicySet version number (parsed from version string) |
 
 **Meta Fields (for inline policies):**
 
@@ -84,7 +94,7 @@ When transforming multiple policies or policies with imports, an Ampel **PolicyS
 | `runtime` | Runtime identifier (e.g., "cel@v14.0") |
 | `description` | Policy description |
 | `assert_mode` | "AND" or "OR" (note: snake_case) |
-| `version` | Integer version number |
+| `version` | Integer version number (int64) |
 | `controls[]` | Array of Control objects |
 | `enforce` | Enforcement mode: "ON", "OFF", "WARN" |
 
@@ -160,14 +170,6 @@ Defines which attestation predicate types this tenet evaluates:
 | `types[]` | string[] | List of predicate type URIs (e.g., "https://slsa.dev/provenance/v1") |
 | `limit` | int32 | Maximum number of predicates to load (optional) |
 
-**Output:**
-Defines a CEL expression to extract an output value:
-
-| Field | Type | Description |
-| ----- | ---- | ----------- |
-| `code` | string | CEL expression to evaluate (e.g., "context.builder-id") |
-| `value` | interface{} | Actual output value (populated at runtime) |
-
 **Error:**
 Defines error messaging for failed tenets (not currently populated):
 
@@ -194,41 +196,148 @@ The `code` field contains a CEL expression generated from multiple Gemara fields
 | `parameters[].accepted-values[]` | Value constraints | Builder ID from parameters |
 | `scope.in.*` (if scope filters enabled) | Scope filters | `subject.type in ["cloud-app"]` |
 
-### Tenet Predicates and Outputs
+## Parameter to Context Mapping
 
-Attestation types are specified in the `predicates` field, while parameters are stored in `outputs` as CEL expressions:
+Gemara assessment plan parameters are mapped to Ampel Policy.Context as ContextVal entries. All unique parameters from all assessment plans are collected and converted.
 
-| Gemara Field | Ampel Field | Transformation |
-| ------------ | ----------- | -------------- |
-| Inferred from `evidence-requirements` | `tenets[].predicates.types[]` | List of predicate type URLs |
-| `parameters[].id` | `tenets[].outputs.{id}.code` | CEL expression to access context value |
-| N/A | `tenets[].outputs.{id}.value` | Runtime-populated output value |
+### Parameter Field Mapping
 
-**Tenet Structure Example:**
+| Gemara Field | Ampel Field | Transformation | Notes |
+| ------------ | ----------- | -------------- | ----- |
+| `parameters[].id` | `context.{id}` | Key in context map | Preserves original parameter ID (including hyphens) |
+| `parameters[].description` | `context.{id}.description` | Direct copy | Falls back to `label` if `description` is empty |
+| `parameters[].accepted-values[0]` | `context.{id}.value` | First accepted value | Default runtime value |
+| `parameters[].accepted-values[0]` | `context.{id}.default` | First accepted value | Default if not provided at runtime |
+| Inferred from `accepted-values` | `context.{id}.type` | Default: `"string"` | Currently all parameters use type "string" |
+| Inferred from `accepted-values` | `context.{id}.required` | `true` if no accepted values, `false` otherwise | Runtime-only parameters are required |
+
+### Parameter Types
+
+**1. Static/Default Parameters** (with `accepted-values`):
+```yaml
+# Gemara
+parameters:
+  - id: builder-id
+    description: Expected SLSA builder ID
+    accepted-values:
+      - https://github.com/actions/runner
+```
+
+**Ampel Context:**
 ```json
 {
-  "id": "SC-01.01-slsa-check-0",
-  "title": "Verify SLSA provenance",
-  "runtime": "cel@v14.0",
-  "predicates": {
-    "types": ["https://slsa.dev/provenance/v1"]
-  },
-  "code": "attestation.predicateType == \"https://slsa.dev/provenance/v1\"",
-  "outputs": {
-    "builder-id": {
-      "code": "context.builder-id",
-      "value": null
-    }
+  "builder-id": {
+    "type": "string",
+    "required": false,
+    "value": "https://github.com/actions/runner",
+    "default": "https://github.com/actions/runner",
+    "description": "Expected SLSA builder ID"
   }
+}
+```
+
+**2. Runtime-Only Parameters** (no `accepted-values`):
+```yaml
+# Gemara
+parameters:
+  - id: runtime-threshold
+    description: Threshold value provided at runtime
+```
+
+**Ampel Context:**
+```json
+{
+  "runtime-threshold": {
+    "type": "string",
+    "required": true,
+    "value": null,
+    "default": null,
+    "description": "Threshold value provided at runtime"
+  }
+}
+```
+
+### Multi-Value Parameters
+
+When a parameter has multiple `accepted-values`, the allowed values are compiled into the CEL expression as hardcoded validation constraints. The context stores only the first value as the default.
+
+**Gemara:**
+```yaml
+parameters:
+  - id: scanner
+    description: Approved vulnerability scanner
+    accepted-values:
+      - trivy
+      - grype
+```
+
+**Ampel Context (stores default):**
+```json
+{
+  "scanner": {
+    "type": "string",
+    "required": false,
+    "value": "trivy",
+    "default": "trivy",
+    "description": "Approved vulnerability scanner"
+  }
+}
+```
+
+**Generated CEL (hardcoded constraint):**
+```cel
+attestation.predicate.scanner.vendor in ["trivy", "grype"]
+```
+
+**Design Rationale:**
+- Context stores the **default runtime value** (single string, type "string")
+- CEL expression encodes the **validation constraint** (allowed list)
+- Allowed values are compiled at policy generation time
+- Runtime can override context with any value (CEL validates against allowed list)
+
+### CEL Context References
+
+Parameters are referenced in CEL expressions using the `context["param-id"]` syntax:
+
+**Example CEL:**
+```cel
+attestation.predicate.builder.id == context["builder-id"]
+```
+
+### Tenet Structure with Context
+
+**Complete Example:**
+```json
+{
+  "id": "slsa-policy",
+  "context": {
+    "builder-id": {
+      "type": "string",
+      "required": false,
+      "value": "https://github.com/actions/runner",
+      "default": "https://github.com/actions/runner",
+      "description": "Expected SLSA builder ID"
+    }
+  },
+  "tenets": [
+    {
+      "id": "SC-01.01-slsa-check-0",
+      "title": "Verify SLSA provenance",
+      "runtime": "cel@v14.0",
+      "predicates": {
+        "types": ["https://slsa.dev/provenance/v1"]
+      },
+      "code": "attestation.predicateType == \"https://slsa.dev/provenance/v1\" && attestation.predicate.builder.id == context[\"builder-id\"]"
+    }
+  ]
 }
 ```
 
 **Notes:**
 - `predicates.types[]` filters which attestations this tenet evaluates
-- `outputs` map parameter IDs to Output objects with CEL `code` field
-- The `code` field references `context.{parameter-id}` for runtime access
-- `value` field is populated at runtime during policy evaluation
-- Parameter `label` and `description` fields are not mapped
+- `context` provides runtime-configurable parameters
+- CEL `code` references context using `context["param-id"]` syntax
+- Parameter values can be provided/overridden at policy evaluation time
 
 ## Evaluation Method Filtering
 
@@ -333,8 +442,8 @@ The following Gemara Layer-3 fields are **not mapped** to Ampel policies:
 
 | Gemara Field | Reason |
 | ------------ | ------ |
-| `parameters[].label` | Human-readable labels not needed in runtime verification |
-| `parameters[].description` | Descriptions not needed in runtime verification |
+| `parameters[].label` | Used as fallback for `description` if description is empty, otherwise not mapped |
+| `parameters[].accepted-values[1..n]` | Only first value stored as default; remaining values compiled into CEL expression constraints |
 
 **Note:** Many of these fields contain valuable organizational context and governance information, but they are not directly translated into verification rules.
 
@@ -362,7 +471,8 @@ CEL code generation is based on keyword detection in the `evidence-requirements`
 | Policy → Ampel Policy | 1:1 | One Gemara policy creates one Ampel policy |
 | Assessment Plan → Tenet | 1:N | One plan can create multiple tenets (one per automated method) |
 | Evaluation Method → Tenet | 1:1 or 1:0 | Only automated methods create tenets |
-| Parameter → Tenet Parameter | 1:1 | Direct mapping |
+| Parameter → Context Entry | 1:1 | Each unique parameter ID creates one ContextVal in Policy.Context |
+| Parameter (multi-value) → CEL constraint | 1:1 | Multiple accepted-values compiled into single CEL "in" expression |
 | Evidence Requirement → CEL Code | 1:1 | Transformed via templates |
 | Scope Dimension → CEL Filter | 1:1 | Each dimension creates one filter |
 
@@ -377,9 +487,32 @@ The transformation follows the official Ampel Policy API format from `github.com
 
 3. **Snake Case Fields**: Official Ampel uses snake_case for certain fields (e.g., `assert_mode` not `assertMode`) to align with common API conventions.
 
-4. **Structured Outputs**: Parameters are mapped to Output objects with CEL `code` expressions that reference context values at runtime.
+4. **Parameter Context**: Gemara assessment plan parameters are mapped to Policy.Context as ContextVal entries, providing runtime-configurable values that can be referenced in CEL expressions via `context["param-id"]`.
 
 5. **Predicate Specification**: Attestation types are specified using PredicateSpec objects at both policy and tenet levels.
+
+**Catalog Enrichment:**
+When a catalog is provided via the `--catalog` flag, the tool enriches the generated policy with data from Gemara Layer-2 control catalogs:
+
+- **Tenet Titles:** Uses requirement text from the catalog instead of generic evidence requirement descriptions
+  - Example: "Build provenance MUST be generated by a trusted builder" (from catalog) instead of "Verify SLSA provenance" (generic)
+
+- **Control Metadata:** Adds control references to `policy.meta.controls`:
+  ```json
+  {
+    "id": "SLSA-BUILD-L3",
+    "title": "SLSA Build Level 3",
+    "framework": "Build Security",
+    "class": "BUILD"
+  }
+  ```
+
+- **Lookup Process:** For each assessment plan, looks up `requirement-id` in the catalog's controls and their assessment requirements
+
+- **Benefits:**
+  - More descriptive tenet titles with specific requirements
+  - Traceability from policy → catalog controls
+  - Framework and control family information in metadata
 
 ## References
 

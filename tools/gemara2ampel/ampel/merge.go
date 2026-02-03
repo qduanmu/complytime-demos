@@ -22,11 +22,11 @@ type MergeStats struct {
 // 4. Validate the merged policy
 //
 // Returns the merged policy, merge statistics, and any validation error.
-func MergePolicy(existing, generated AmpelPolicy) (AmpelPolicy, MergeStats, error) {
+func MergePolicy(existing, generated *Policy) (*Policy, MergeStats, error) {
 	stats := MergeStats{}
 
 	// Start with the generated policy as the base (updates all metadata)
-	merged := AmpelPolicy{
+	merged := &Policy{
 		Id:      generated.Id,
 		Meta:    generated.Meta,
 		Context: generated.Context,
@@ -66,7 +66,7 @@ func MergePolicy(existing, generated AmpelPolicy) (AmpelPolicy, MergeStats, erro
 
 	// Validate the merged policy
 	if err := merged.Validate(); err != nil {
-		return AmpelPolicy{}, stats, fmt.Errorf("merged policy validation failed: %w", err)
+		return nil, stats, fmt.Errorf("merged policy validation failed: %w", err)
 	}
 
 	return merged, stats, nil

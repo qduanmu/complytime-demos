@@ -29,8 +29,11 @@ type TransformOptions struct {
 type TransformOption func(*TransformOptions)
 
 // WithCatalog sets a catalog to use for enriching tenets with control details.
-// When provided, the transformation will look up controls and requirements
-// from the catalog to create more detailed tenet descriptions.
+// When provided, the transformation will:
+//   - Look up requirement IDs in the catalog
+//   - Use requirement text as tenet titles (more descriptive than evidence requirements)
+//   - Add control references to policy metadata (Meta.Controls)
+//   - Include control family information (framework and class)
 func WithCatalog(catalog *gemara.Catalog) TransformOption {
 	return func(opts *TransformOptions) {
 		opts.Catalog = catalog

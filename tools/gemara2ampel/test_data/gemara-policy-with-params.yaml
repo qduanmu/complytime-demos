@@ -1,0 +1,61 @@
+title: SLSA Build Verification Policy
+metadata:
+  id: slsa-build-policy
+  version: 1.0.0
+  description: Verify SLSA provenance with specific builder requirements
+  author:
+    name: Security Team
+    id: security-team
+    type: Human
+contacts:
+  responsible:
+    - name: DevSecOps Lead
+  accountable:
+    - name: CISO
+scope:
+  in:
+    technologies:
+      - CI/CD
+      - Build Systems
+    geopolitical:
+      - United States
+imports: {}
+adherence:
+  assessment-plans:
+    - id: slsa-builder-check
+      requirement-id: SLSA-REQ-001
+      frequency: continuous
+      evidence-requirements: SLSA provenance attestation with trusted builder
+      parameters:
+        - id: builder-id
+          label: Trusted Builder ID
+          description: The expected SLSA builder identifier
+          accepted-values:
+            - https://github.com/slsa-framework/slsa-github-generator/.github/workflows/builder.yml@v1.0.0
+        - id: min-slsa-level
+          label: Minimum SLSA Level
+          description: Minimum required SLSA provenance level
+          accepted-values:
+            - "3"
+      evaluation-methods:
+        - type: automated
+          description: Verify SLSA builder ID matches expected value
+    - id: vuln-scan-check
+      requirement-id: VULN-REQ-001
+      frequency: daily
+      evidence-requirements: Vulnerability scan with severity threshold
+      parameters:
+        - id: scanner
+          label: Approved Scanner
+          description: Name of the approved vulnerability scanner
+          accepted-values:
+            - trivy
+            - grype
+        - id: max-critical
+          label: Max Critical Vulnerabilities
+          description: Maximum allowed critical vulnerabilities
+          accepted-values:
+            - "0"
+      evaluation-methods:
+        - type: automated
+          description: Check vulnerability scan results

@@ -77,7 +77,7 @@ func convertToPolicySet(policy *gemara.Policy, transformOpts []ampel.TransformOp
 	}
 
 	// Serialize to JSON
-	ampelJSON, err := ampelPolicySet.ToJSON()
+	ampelJSON, err := json.MarshalIndent(ampelPolicySet, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to serialize PolicySet to JSON: %w", err)
 	}
@@ -111,7 +111,7 @@ func convertToPolicy(policy *gemara.Policy, transformOpts []ampel.TransformOptio
 }
 
 // handleWorkspaceMode handles policy conversion in workspace mode
-func handleWorkspaceMode(ampelPolicy ampel.AmpelPolicy, defaultOutputFile string) error {
+func handleWorkspaceMode(ampelPolicy *ampel.Policy, defaultOutputFile string) error {
 	// Workspace mode
 	ws, err := ampel.NewWorkspace(workspacePath)
 	if err != nil {
@@ -147,7 +147,7 @@ func handleWorkspaceMode(ampelPolicy ampel.AmpelPolicy, defaultOutputFile string
 			return fmt.Errorf("failed to read existing policy: %w", err)
 		}
 
-		var existingPolicy ampel.AmpelPolicy
+		var existingPolicy *ampel.Policy
 		if err := json.Unmarshal(data, &existingPolicy); err != nil {
 			return fmt.Errorf("failed to parse existing policy JSON (try --force-overwrite to regenerate): %w", err)
 		}
@@ -159,7 +159,7 @@ func handleWorkspaceMode(ampelPolicy ampel.AmpelPolicy, defaultOutputFile string
 		}
 
 		// Save merged policy
-		mergedJSON, err := mergedPolicy.ToJSON()
+		mergedJSON, err := json.MarshalIndent(mergedPolicy, "", "  ")
 		if err != nil {
 			return fmt.Errorf("failed to serialize merged policy: %w", err)
 		}
@@ -179,7 +179,7 @@ func handleWorkspaceMode(ampelPolicy ampel.AmpelPolicy, defaultOutputFile string
 	} else {
 		// Create new or force overwrite
 		// Serialize to JSON
-		ampelJSON, err := ampelPolicy.ToJSON()
+		ampelJSON, err := json.MarshalIndent(ampelPolicy, "", "  ")
 		if err != nil {
 			return fmt.Errorf("failed to serialize policy to JSON: %w", err)
 		}
@@ -203,7 +203,7 @@ func handleWorkspaceMode(ampelPolicy ampel.AmpelPolicy, defaultOutputFile string
 }
 
 // handleStandardMode handles policy conversion in standard (non-workspace) mode
-func handleStandardMode(ampelPolicy ampel.AmpelPolicy, defaultOutputFile string) error {
+func handleStandardMode(ampelPolicy *ampel.Policy, defaultOutputFile string) error {
 	// Original behavior (no workspace)
 	// Set default output filename if not specified
 	finalOutputFile := outputFile
@@ -212,7 +212,7 @@ func handleStandardMode(ampelPolicy ampel.AmpelPolicy, defaultOutputFile string)
 	}
 
 	// Serialize to JSON
-	ampelJSON, err := ampelPolicy.ToJSON()
+	ampelJSON, err := json.MarshalIndent(ampelPolicy, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to serialize policy to JSON: %w", err)
 	}

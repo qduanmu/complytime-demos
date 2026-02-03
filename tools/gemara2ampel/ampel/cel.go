@@ -11,27 +11,33 @@ import (
 
 // DefaultCELTemplates provides CEL code templates for common attestation
 // verification patterns. Templates use Go text/template syntax.
+//
+// Note: Template variables are replaced with context references like context["param-id"]
+// for runtime parameter access. Use {{index . "param-id"}} for parameters with hyphens.
 var DefaultCELTemplates = map[string]string{
 	// SLSA provenance verification templates
-	"slsa-provenance-builder": `attestation.predicateType == "https://slsa.dev/provenance/v1" && attestation.predicate.builder.id == "{{.BuilderId}}"`,
+	// Uses {{index . "builder-id"}} to access parameter with hyphen
+	"slsa-provenance-builder": `attestation.predicateType == "https://slsa.dev/provenance/v1" && attestation.predicate.builder.id == {{index . "builder-id"}}`,
 
-	"slsa-provenance-builder-in": `attestation.predicateType == "https://slsa.dev/provenance/v1" && attestation.predicate.builder.id in [{{.BuilderIds}}]`,
+	"slsa-provenance-builder-in": `attestation.predicateType == "https://slsa.dev/provenance/v1" && attestation.predicate.builder.id in [{{index . "builder-id-list"}}]`,
 
 	"slsa-provenance-materials": `attestation.predicateType == "https://slsa.dev/provenance/v1" && all(attestation.predicate.materials, m, m.digest.sha256 != "")`,
 
-	"slsa-provenance-buildtype": `attestation.predicateType == "https://slsa.dev/provenance/v1" && attestation.predicate.buildType == "{{.BuildType}}"`,
+	"slsa-provenance-buildtype": `attestation.predicateType == "https://slsa.dev/provenance/v1" && attestation.predicate.buildType == {{index . "build-type"}}`,
 
 	// Vulnerability scan templates
 	"vulnerability-scan-no-critical": `attestation.predicateType == "https://in-toto.io/Statement/v0.1" && attestation.predicate.scanner.result.summary.critical == 0`,
 
-	"vulnerability-scan-threshold": `attestation.predicateType == "https://in-toto.io/Statement/v0.1" && attestation.predicate.scanner.result.summary.critical == 0 && attestation.predicate.scanner.result.summary.high < {{.MaxHigh}}`,
+	"vulnerability-scan-threshold": `attestation.predicateType == "https://in-toto.io/Statement/v0.1" && attestation.predicate.scanner.vendor in [{{index . "scanner-list"}}] && attestation.predicate.scanner.result.summary.critical <= {{index . "max-critical"}}`,
 
-	"vulnerability-scanner": `attestation.predicateType == "https://in-toto.io/Statement/v0.1" && attestation.predicate.scanner.vendor == "{{.Scanner}}"`,
+	"vulnerability-scanner": `attestation.predicateType == "https://in-toto.io/Statement/v0.1" && attestation.predicate.scanner.vendor in [{{index . "scanner-list"}}]`,
 
 	// Generic templates
+	// Note: PredicateType is a literal value (attestation type URI), so it stays quoted
 	"generic-predicate-type": `attestation.predicateType == "{{.PredicateType}}"`,
 
-	"generic-field-equals": `attestation.predicate.{{.FieldPath}} == "{{.ExpectedValue}}"`,
+	// Note: Parameters are accessed using their original IDs
+	"generic-field-equals": `attestation.predicate.{{.FieldPath}} == {{.ExpectedValue}}`,
 
 	"generic-field-in": `attestation.predicate.{{.FieldPath}} in [{{.AllowedValues}}]`,
 }

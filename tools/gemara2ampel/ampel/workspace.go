@@ -26,7 +26,7 @@ func NewWorkspace(path string) (*Workspace, error) {
 
 // LoadPolicy loads an existing Ampel policy from the workspace.
 // Returns an error if the policy file doesn't exist or cannot be parsed.
-func (w *Workspace) LoadPolicy(policyID string) (*AmpelPolicy, error) {
+func (w *Workspace) LoadPolicy(policyID string) (*Policy, error) {
 	policyPath := w.GetPolicyPath(policyID)
 
 	data, err := os.ReadFile(policyPath)
@@ -37,7 +37,7 @@ func (w *Workspace) LoadPolicy(policyID string) (*AmpelPolicy, error) {
 		return nil, fmt.Errorf("failed to read policy file: %w", err)
 	}
 
-	var policy AmpelPolicy
+	var policy Policy
 	if err := json.Unmarshal(data, &policy); err != nil {
 		return nil, fmt.Errorf("failed to parse policy JSON (try -force-overwrite to regenerate): %w", err)
 	}
@@ -47,11 +47,11 @@ func (w *Workspace) LoadPolicy(policyID string) (*AmpelPolicy, error) {
 
 // SavePolicy saves an Ampel policy to the workspace.
 // The policy is written with proper JSON formatting and secure file permissions.
-func (w *Workspace) SavePolicy(policyID string, policy AmpelPolicy) error {
+func (w *Workspace) SavePolicy(policyID string, policy *Policy) error {
 	policyPath := w.GetPolicyPath(policyID)
 
-	// Serialize to JSON
-	data, err := policy.ToJSON()
+	// Serialize to JSON using protobuf JSON marshaling
+	data, err := json.MarshalIndent(policy, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to serialize policy: %w", err)
 	}
